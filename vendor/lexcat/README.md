@@ -1,6 +1,6 @@
 # Vendored LexCAT runtime
 
-WikiKB ships LexCAT 0.0.14, a model-free lexical retrieval CLI, as binary-only
+WikiKB ships LexCAT 0.0.16, a model-free lexical retrieval CLI, as binary-only
 platform archives. WikiKB uses LexCAT as its indexing and retrieval runtime.
 The runtime is mandatory for indexing and retrieval; no source checkout,
 runtime download, or alternate retrieval path is included.
@@ -32,13 +32,13 @@ service.
 
 | Platform | Archive |
 | --- | --- |
-| `linux/x64` | `lexcat-v0.0.14-linux-x86_64.tar.gz` |
-| `linux/arm64` | `lexcat-v0.0.14-linux-arm64.tar.gz` |
-| `darwin/arm64` | `lexcat-v0.0.14-macos-arm64.tar.gz` |
-| `darwin/x64` | `lexcat-v0.0.14-macos-x86_64.tar.gz` |
-| `win32/x64` | `lexcat-v0.0.14-windows-x86_64.zip` |
+| `linux/x64` | `lexcat-v0.0.16-linux-x86_64.tar.gz` |
+| `linux/arm64` | `lexcat-v0.0.16-linux-arm64.tar.gz` |
+| `darwin/arm64` | `lexcat-v0.0.16-macos-arm64.tar.gz` |
+| `darwin/x64` | `lexcat-v0.0.16-macos-x86_64.tar.gz` |
+| `win32/x64` | `lexcat-v0.0.16-windows-x86_64.zip` |
 
-LexCAT 0.0.14 publishes no native `win32/arm64` binary. Windows on ARM runs the
+LexCAT 0.0.16 publishes no native `win32/arm64` binary. Windows on ARM runs the
 x64 executable under emulation, so WikiKB selects the `win32/x64` archive there.
 Any other platform fails with an explicit error and requires `WIKIKB_LEXCAT_BIN`
 to point at an approved executable.
@@ -46,10 +46,12 @@ to point at an approved executable.
 ## Index compatibility
 
 LexCAT writes a single SQLite index whose schema version is pinned in
-`manifest.json`. LexCAT rejects an index written by a different schema version,
-and WikiKB's index contract (`index_config`) changes whenever the pinned
-runtime or schema changes, so cached indexes rebuild rather than load a
-mismatched file.
+`manifest.json`. WikiKB does not rely on LexCAT to reject a stale index:
+0.0.16 reads and syncs an index written by an older schema without
+complaint. The guarantee comes from WikiKB instead — the cache sidecar
+records `runtime_compatibility` as `release:<version>`, so bumping the
+vendored runtime invalidates every cached index and forces a rebuild
+before any query runs.
 
 WikiKB reads results through `lexcat query --json`, which returns each hit's
 text and provider metadata, so WikiKB never binds against the on-disk schema

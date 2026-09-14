@@ -49,25 +49,25 @@ jobs:
             os: ubuntu-latest
             platform: linux
             arch: x64
-            archive: lexcat-v0.0.14-linux-x86_64.tar.gz
+            archive: lexcat-v0.0.16-linux-x86_64.tar.gz
             executable: lexcat
           - name: Linux arm64
             os: ubuntu-24.04-arm
             platform: linux
             arch: arm64
-            archive: lexcat-v0.0.14-linux-arm64.tar.gz
+            archive: lexcat-v0.0.16-linux-arm64.tar.gz
             executable: lexcat
           - name: macOS arm64
             os: macos-15
             platform: darwin
             arch: arm64
-            archive: lexcat-v0.0.14-macos-arm64.tar.gz
+            archive: lexcat-v0.0.16-macos-arm64.tar.gz
             executable: lexcat
           - name: Windows x64
             os: windows-latest
             platform: win32
             arch: x64
-            archive: lexcat-v0.0.14-windows-x86_64.zip
+            archive: lexcat-v0.0.16-windows-x86_64.zip
             executable: lexcat.exe
     steps:
       - name: Checkout repository
@@ -91,7 +91,7 @@ jobs:
             tar -xzf "$archive" -C "$runtime_dir"
           fi
           chmod +x "$runtime_dir/${{ matrix.executable }}"
-          # 0.0.14 stamps the real release version into the binary (upstream #234),
+          # 0.0.16 stamps the real release version into the binary (upstream #234),
           # so --version pins both the release number and the index schema, on top
           # of the manifest checksum verified above.
           node -e '
