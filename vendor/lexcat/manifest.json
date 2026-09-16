@@ -2,70 +2,70 @@
   "schema_version": 1,
   "name": "LEXCAT",
   "description": "Model-free lexical retrieval; WikiKB's indexing and retrieval runtime",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "notices": "THIRD_PARTY_NOTICES.txt",
-  "notices_sha256": "399e9dff2bd9c7627558cbaea5132578d51c6f48d739a8fcc15cfbfd9fbe78a9",
+  "notices_sha256": "bcce10196b52ee5d0305e0bbf00dfea6c912364240187153f201a573fcff33da",
   "index_schema_version": 17,
   "artifacts": [
     {
       "platform": "darwin",
       "arch": "arm64",
-      "archive": "lexcat-v0.0.16-macos-arm64.tar.gz",
+      "archive": "lexcat-v0.0.17-macos-arm64.tar.gz",
       "format": "tar.gz",
       "executable": "lexcat",
-      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.16 runtime release and repackaged under a neutral filename.",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.17 runtime release and repackaged under a neutral filename.",
       "upstream_asset": "lexcat-aarch64-macos",
-      "upstream_sha256": "05d3b8eb3ea5fb2225cf8c7d8cdce61621b36f9b6081ae1bba7dbd9fee18566e",
-      "archive_sha256": "93a5eac180d133cb1bef88b1a32a366a79067c718615b36e503ae22ae3a7f4ec",
-      "executable_sha256": "05d3b8eb3ea5fb2225cf8c7d8cdce61621b36f9b6081ae1bba7dbd9fee18566e"
+      "upstream_sha256": "930091b71148323e7c2b035be6e415dbf6e896f07f915efbbe22f147a1248f43",
+      "archive_sha256": "00aad51a4b15c9211ca8c22465432ef77d46e21e520a146dff59a000d7a8709e",
+      "executable_sha256": "930091b71148323e7c2b035be6e415dbf6e896f07f915efbbe22f147a1248f43"
     },
     {
       "platform": "darwin",
       "arch": "x64",
-      "archive": "lexcat-v0.0.16-macos-x86_64.tar.gz",
+      "archive": "lexcat-v0.0.17-macos-x86_64.tar.gz",
       "format": "tar.gz",
       "executable": "lexcat",
-      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.16 runtime release and repackaged under a neutral filename.",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.17 runtime release and repackaged under a neutral filename.",
       "upstream_asset": "lexcat-x86_64-macos",
-      "upstream_sha256": "21ad8700423ca1f2f9d71aced5ed473da0c2b05666b5d59ebacda54bc7ca0ed9",
-      "archive_sha256": "617046d079bfef7143c9fbbac85103d7264bbe28e6ea2a6e8b661f9dad3db542",
-      "executable_sha256": "21ad8700423ca1f2f9d71aced5ed473da0c2b05666b5d59ebacda54bc7ca0ed9"
+      "upstream_sha256": "40e037f47b8c989284ceb423e88f5ff1058b61ba9b0bfd654a8cf2a53eb389ce",
+      "archive_sha256": "cc06fb49df9c8826bc54bc517acfe213fd7dfd16899827ed6c4453de3d01aede",
+      "executable_sha256": "40e037f47b8c989284ceb423e88f5ff1058b61ba9b0bfd654a8cf2a53eb389ce"
     },
     {
       "platform": "linux",
       "arch": "arm64",
-      "archive": "lexcat-v0.0.16-linux-arm64.tar.gz",
+      "archive": "lexcat-v0.0.17-linux-arm64.tar.gz",
       "format": "tar.gz",
       "executable": "lexcat",
-      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.16 runtime release and repackaged under a neutral filename.",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.17 runtime release and repackaged under a neutral filename.",
       "upstream_asset": "lexcat-aarch64-linux",
-      "upstream_sha256": "d25e4715ecdc9846250ce8054157b0ff2f61512ea9120d22e6454ab3315b1ea0",
-      "archive_sha256": "416fe7b1cde74761f83a0520cb1c4f6ad03f312f31d271885487cc585e045697",
-      "executable_sha256": "d25e4715ecdc9846250ce8054157b0ff2f61512ea9120d22e6454ab3315b1ea0"
+      "upstream_sha256": "98bc2ae5e98b4c802affe129c2aee161179c757b1028b9db336f3a46fa72e75b",
+      "archive_sha256": "d099997bbf53da482d6763b326d6d71d8485a7994f2eac84d00412a3c69ded81",
+      "executable_sha256": "98bc2ae5e98b4c802affe129c2aee161179c757b1028b9db336f3a46fa72e75b"
     },
     {
       "platform": "linux",
       "arch": "x64",
-      "archive": "lexcat-v0.0.16-linux-x86_64.tar.gz",
+      "archive": "lexcat-v0.0.17-linux-x86_64.tar.gz",
       "format": "tar.gz",
       "executable": "lexcat",
-      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.16 runtime release and repackaged under a neutral filename.",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.17 runtime release and repackaged under a neutral filename.",
       "upstream_asset": "lexcat-x86_64-linux",
-      "upstream_sha256": "c6ffcd735eee848751a9b10b755195bcc133e57d218ebd425d78ee63b5c410ad",
-      "archive_sha256": "ba78da2d5387da1a0ef94f590a87b1cf5aac97375b809b1acc93711249abec72",
-      "executable_sha256": "c6ffcd735eee848751a9b10b755195bcc133e57d218ebd425d78ee63b5c410ad"
+      "upstream_sha256": "dfa877135130f91b9b2884fa31570ac1d7a45f34b7bd50b059e4aa40ad5f12a7",
+      "archive_sha256": "3729035e12bff9c7dc10b32dc193da4c7b56b72ee89110bc88ef863f2b6fdb6b",
+      "executable_sha256": "dfa877135130f91b9b2884fa31570ac1d7a45f34b7bd50b059e4aa40ad5f12a7"
     },
     {
       "platform": "win32",
       "arch": "x64",
-      "archive": "lexcat-v0.0.16-windows-x86_64.zip",
+      "archive": "lexcat-v0.0.17-windows-x86_64.zip",
       "format": "zip",
       "executable": "lexcat.exe",
-      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.16 runtime release and repackaged under a neutral filename.",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.17 runtime release and repackaged under a neutral filename.",
       "upstream_asset": "lexcat-x86_64-windows.exe",
-      "upstream_sha256": "5bb29fd6797d3d3573ae9d3a909fb5e3c1c0e005dda038f86efeb04cf68d0b40",
-      "archive_sha256": "c6af079dcc9d1190c563c659ea7cdc26745a37b22c9e2cafbb6d19bcb72e2262",
-      "executable_sha256": "5bb29fd6797d3d3573ae9d3a909fb5e3c1c0e005dda038f86efeb04cf68d0b40"
+      "upstream_sha256": "17f0f05df7bc23e9cd5c52767597d7b4fb619ed81f4c64fa66e1043921de0575",
+      "archive_sha256": "79f667cf512c7051a6970e38931e27bdfabe13bc93002e5bbda643b30ab95c08",
+      "executable_sha256": "17f0f05df7bc23e9cd5c52767597d7b4fb619ed81f4c64fa66e1043921de0575"
     }
   ]
 }

@@ -12,11 +12,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_DIR="${WKB_INSTALL_DIR:-$HOME/.local/bin}"
 LEXCAT_ARCHIVE=""
 case "$(uname -s):$(uname -m)" in
-    Linux:x86_64|Linux:amd64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.16-linux-x86_64.tar.gz" ;;
-    Linux:aarch64|Linux:arm64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.16-linux-arm64.tar.gz" ;;
-    Darwin:arm64|Darwin:aarch64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.16-macos-arm64.tar.gz" ;;
-    Darwin:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.16-macos-x86_64.tar.gz" ;;
-    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.16-windows-x86_64.zip" ;;
+    Linux:x86_64|Linux:amd64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.17-linux-x86_64.tar.gz" ;;
+    Linux:aarch64|Linux:arm64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.17-linux-arm64.tar.gz" ;;
+    Darwin:arm64|Darwin:aarch64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.17-macos-arm64.tar.gz" ;;
+    Darwin:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.17-macos-x86_64.tar.gz" ;;
+    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.17-windows-x86_64.zip" ;;
 esac
 
 echo "Installing wkb..."
@@ -27,7 +27,7 @@ if [ -n "${WIKIKB_LEXCAT_BIN:-}" ]; then
         exit 1
     fi
 elif [ -z "$LEXCAT_ARCHIVE" ] || [ ! -f "$LEXCAT_ARCHIVE" ]; then
-    echo "ERROR: No vendored LexCAT 0.0.16 binary for $(uname -s)/$(uname -m)." >&2
+    echo "ERROR: No vendored LexCAT 0.0.17 binary for $(uname -s)/$(uname -m)." >&2
     echo "Set WIKIKB_LEXCAT_BIN to an approved LexCAT executable." >&2
     exit 1
 fi
@@ -61,7 +61,7 @@ chmod +x "$WRAPPER"
 if [ -n "${WIKIKB_LEXCAT_BIN:-}" ]; then
     echo "  LexCAT: executable override $WIKIKB_LEXCAT_BIN"
 elif [ -n "$LEXCAT_ARCHIVE" ] && [ -f "$LEXCAT_ARCHIVE" ]; then
-    echo "  LexCAT: vendored 0.0.16 binary available (extracted on first index)"
+    echo "  LexCAT: vendored 0.0.17 binary available (extracted on first index)"
 fi
 
 echo ""
