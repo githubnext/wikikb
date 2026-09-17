@@ -339,14 +339,14 @@ if (
 if (
   lexcatManifest.schema_version !== 1 ||
   lexcatManifest.name !== "LEXCAT" ||
-  lexcatManifest.version !== "0.0.17" ||
+  lexcatManifest.version !== "0.0.18" ||
   lexcatManifest.notices !== "THIRD_PARTY_NOTICES.txt" ||
   !/^[a-f0-9]{64}$/.test(lexcatManifest.notices_sha256 || "") ||
   !Number.isInteger(lexcatManifest.index_schema_version) ||
   "model" in lexcatManifest ||
   !Array.isArray(lexcatManifest.artifacts)
 ) {
-  errors.push("vendor/lexcat/manifest.json must declare the approved model-free LexCAT 0.0.17 artifact and notice metadata.");
+  errors.push("vendor/lexcat/manifest.json must declare the approved model-free LexCAT 0.0.18 artifact and notice metadata.");
 } else {
   const noticesPath = rel("vendor", "lexcat", lexcatManifest.notices);
   if (!fs.existsSync(noticesPath)) {

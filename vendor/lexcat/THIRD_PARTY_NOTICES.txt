@@ -1,7 +1,7 @@
 Third-Party Notice: LexCAT
 ==========================
 
-WikiKB includes unchanged binary archives of the LexCAT 0.0.17 lexical
+WikiKB includes unchanged binary archives of the LexCAT 0.0.18 lexical
 retrieval runtime in this directory. The LexCAT executables
 are not licensed under WikiKB's MIT License.
 
