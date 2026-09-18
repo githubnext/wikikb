@@ -51,4 +51,4 @@ jobs:
           "$WKB" wikikb status
           "$WKB" wikikb lint
           "$WKB" wikikb index
-          echo "Shared SOMA index synchronized."
+          echo "Shared LexCAT index synchronized."

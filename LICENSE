@@ -3,11 +3,11 @@ WikiKB License
 Except for the third-party material identified below, WikiKB is licensed under
 the MIT License:
 
-- The SOMA binary archives and executables under `vendor/soma/` are
+- The LexCAT binary archives and executables under `vendor/lexcat/` are
   not licensed under the MIT License. Microsoft has authorized their
   redistribution as unchanged compiled components of WikiKB; separate use,
   modification, sublicensing, or relicensing is not granted here. See
-  `vendor/soma/THIRD_PARTY_NOTICES.txt`.
+  `vendor/lexcat/THIRD_PARTY_NOTICES.txt`.
 
 The MIT License follows.
 

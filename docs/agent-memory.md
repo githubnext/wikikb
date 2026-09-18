@@ -20,7 +20,7 @@ wkb project.decisions search "What did we decide?"
 
 Use `query` only for a generated answer. It requires an explicit AI provider and model; `search` never calls a generation provider. See [Configuration](configuration.md).
 
-SOMA is the only retrieval backend. `queries/` pages remain generated claims; verify them against cited sources or concepts.
+LexCAT is the only retrieval backend. It performs model-free lexical BM25 retrieval. `queries/` pages remain generated claims; verify them against cited sources or concepts.
 
 ## Write
 

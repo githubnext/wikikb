@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "name": "LEXCAT",
+  "description": "Model-free lexical retrieval; WikiKB's indexing and retrieval runtime",
+  "version": "0.0.20",
+  "notices": "THIRD_PARTY_NOTICES.txt",
+  "notices_sha256": "a97fa68957cc618d99c951f535a1e136217d88b23909a0a460f7d83c3c04afaf",
+  "index_schema_version": 17,
+  "artifacts": [
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "archive": "lexcat-v0.0.20-macos-arm64.tar.gz",
+      "format": "tar.gz",
+      "executable": "lexcat",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.20 runtime release and repackaged under a neutral filename.",
+      "upstream_asset": "lexcat-aarch64-macos",
+      "upstream_sha256": "b959cc1cc8b76d70842c61da3b5c407ded336c723e820de59aeebe5a839c96dd",
+      "archive_sha256": "4d879c3adbdcfdbef4d0afa9e5a7527705d75ba7d5a90b020ab11e2c11b35150",
+      "executable_sha256": "b959cc1cc8b76d70842c61da3b5c407ded336c723e820de59aeebe5a839c96dd"
+    },
+    {
+      "platform": "darwin",
+      "arch": "x64",
+      "archive": "lexcat-v0.0.20-macos-x86_64.tar.gz",
+      "format": "tar.gz",
+      "executable": "lexcat",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.20 runtime release and repackaged under a neutral filename.",
+      "upstream_asset": "lexcat-x86_64-macos",
+      "upstream_sha256": "32f0c27f0d66beca075103215c12d6d2a28d46b702970e26e7f1f0020ce1aed1",
+      "archive_sha256": "06088075bc5fd32cebe4fa4032b8c3ff665eefab06fa362b553b0fc1fb51d0c1",
+      "executable_sha256": "32f0c27f0d66beca075103215c12d6d2a28d46b702970e26e7f1f0020ce1aed1"
+    },
+    {
+      "platform": "linux",
+      "arch": "arm64",
+      "archive": "lexcat-v0.0.20-linux-arm64.tar.gz",
+      "format": "tar.gz",
+      "executable": "lexcat",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.20 runtime release and repackaged under a neutral filename.",
+      "upstream_asset": "lexcat-aarch64-linux",
+      "upstream_sha256": "f36470264e2040fb6b2890e14430f11e35213ce5ce2a5e05292eab1abc33bc26",
+      "archive_sha256": "7f91616aeb75ed6ae4340e9856bf851699f85c889d8541efaa257be5c5d1e532",
+      "executable_sha256": "f36470264e2040fb6b2890e14430f11e35213ce5ce2a5e05292eab1abc33bc26"
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "archive": "lexcat-v0.0.20-linux-x86_64.tar.gz",
+      "format": "tar.gz",
+      "executable": "lexcat",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.20 runtime release and repackaged under a neutral filename.",
+      "upstream_asset": "lexcat-x86_64-linux",
+      "upstream_sha256": "e4e876267827f5e9e6742d2e1cd9ad3f4064d213ab9cee4dc5b7e47406ab2f65",
+      "archive_sha256": "29779e9679343fba3765722e06daff427cd2c6cd7a94dd07fa66de50046d83f4",
+      "executable_sha256": "e4e876267827f5e9e6742d2e1cd9ad3f4064d213ab9cee4dc5b7e47406ab2f65"
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "archive": "lexcat-v0.0.20-windows-x86_64.zip",
+      "format": "zip",
+      "executable": "lexcat.exe",
+      "provenance": "Executable bytes are unchanged from the authorized binary-only 0.0.20 runtime release and repackaged under a neutral filename.",
+      "upstream_asset": "lexcat-x86_64-windows.exe",
+      "upstream_sha256": "3be1b6609fc268840fe218a5ff3e0a0e6b2d1a58e09c56dae812b1d22106be46",
+      "archive_sha256": "0545c4561d8dae1e193e2f7c81c86cc90e4a729eb2de63a5fa4661b152aa816c",
+      "executable_sha256": "3be1b6609fc268840fe218a5ff3e0a0e6b2d1a58e09c56dae812b1d22106be46"
+    }
+  ]
+}

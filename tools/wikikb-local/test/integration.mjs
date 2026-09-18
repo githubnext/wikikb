@@ -10,7 +10,7 @@ import test, { after } from "node:test";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
 const wkb = join(repoRoot, "tools/wikikb-local/wkb");
-const somaManifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "soma", "manifest.json"), "utf8"));
+const lexcatManifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "lexcat", "manifest.json"), "utf8"));
 
 loadDotEnv(join(repoRoot, ".env"));
 loadDotEnv(join(repoRoot, "tests/integration/.env"));
@@ -26,7 +26,7 @@ const token = (process.env.WIKIKB_INTEGRATION_TOKEN || process.env.WIKIKB_GITHUB
 const copilotToken = (process.env.WIKIKB_COPILOT_TOKEN || githubCliToken).trim();
 const disposableName = slug.split("/")[1] || "";
 const looksDisposable = /(?:^|[-_.])(test|testing|fixture|sandbox|disposable)(?:$|[-_.])/i.test(disposableName);
-const hasSoma = detectSoma();
+const hasLexcat = detectLexcat();
 
 if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(slug)) {
   throw new Error("WikiKB integration tests require WIKIKB_TEST_REPO=owner/repository in the environment or .env");
@@ -36,12 +36,12 @@ if (!copilotToken) throw new Error("WikiKB integration tests require WIKIKB_COPI
 if (!looksDisposable && process.env.WIKIKB_ALLOW_ANY_TEST_REPO !== "1") {
   throw new Error("WIKIKB_TEST_REPO must have test, fixture, sandbox, or disposable in its name (or explicitly set WIKIKB_ALLOW_ANY_TEST_REPO=1)");
 }
-if (!hasSoma) throw new Error(`The vendored SOMA runtime is unavailable for ${process.platform}/${process.arch}`);
+if (!hasLexcat) throw new Error(`The vendored LexCAT runtime is unavailable for ${process.platform}/${process.arch}`);
 const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-integration-"));
 const verificationCacheDir = mkdtempSync(join(tmpdir(), "wikikb-integration-verify-"));
 const sharedCacheVerificationDir = mkdtempSync(join(tmpdir(), "wikikb-integration-shared-"));
 const invalidationCacheDir = mkdtempSync(join(tmpdir(), "wikikb-integration-invalidation-"));
-const modelBootstrapCacheDir = mkdtempSync(join(tmpdir(), "wikikb-integration-model-"));
+const runtimeBootstrapCacheDir = mkdtempSync(join(tmpdir(), "wikikb-integration-runtime-"));
 const runId = `run-${Date.now().toString(36)}-${process.pid}`;
 const namespace = ["integration", runId];
 const namespaceKey = namespace.join(".");
@@ -59,21 +59,7 @@ let verificationReady = false;
 let liveWriteTouched = false;
 const issueWorkflowMarkers = [];
 const issueWorkflowIssueNumbers = [];
-let suiteModelDir = process.env.WIKIKB_SOMA_MODEL_DIR ? resolve(process.env.WIKIKB_SOMA_MODEL_DIR) : undefined;
 
-function modelDirIsVerified(modelDir) {
-  if (!modelDir) return false;
-  return Object.entries(somaManifest.model.files).every(([file, digest]) => {
-    const path = join(modelDir, file);
-    return existsSync(path) && createHash("sha256").update(readFileSync(path)).digest("hex") === digest;
-  });
-}
-
-function captureManagedModel(selectedCache) {
-  if (modelDirIsVerified(suiteModelDir)) return;
-  const candidate = join(selectedCache, "runtime", "soma", "models", somaManifest.model.name);
-  if (modelDirIsVerified(candidate)) suiteModelDir = candidate;
-}
 
 function env(extra = {}, selectedCache = cacheDir) {
   return {
@@ -87,7 +73,6 @@ function env(extra = {}, selectedCache = cacheDir) {
     GIT_AUTHOR_EMAIL: "wikikb-integration@example.invalid",
     GIT_COMMITTER_NAME: "WikiKB Integration Test",
     GIT_COMMITTER_EMAIL: "wikikb-integration@example.invalid",
-    WIKIKB_SOMA_MODEL_DIR: suiteModelDir || "",
     ...extra,
   };
 }
@@ -105,7 +90,6 @@ function run(args, { timeout = 120_000, extraEnv = {}, cache = cacheDir } = {}) 
 function runOk(args, options) {
   const result = run(args, options);
   assert.equal(result.status, 0, `${args.join(" ")} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-  if (options?.captureModel !== false) captureManagedModel(options?.cache || cacheDir);
   return result;
 }
 
@@ -284,10 +268,10 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
   };
 }
 
-function detectSoma() {
-  const override = process.env.WIKIKB_SOMA_BIN;
+function detectLexcat() {
+  const override = process.env.WIKIKB_LEXCAT_BIN;
   if (override) return existsSync(override);
-  const vendorDir = join(repoRoot, "vendor", "soma");
+  const vendorDir = join(repoRoot, "vendor", "lexcat");
   try {
     const manifest = JSON.parse(readFileSync(join(vendorDir, "manifest.json"), "utf8"));
     const artifact = manifest.artifacts.find((candidate) => candidate.platform === process.platform && candidate.arch === process.arch);
@@ -707,7 +691,7 @@ test("self-cleaning live round trip exercises CLI writes, reads, AI, and issues"
   assert.match(status.stdout, /Pages:\s+[3-9]/);
 
   const indexed = runOk([verificationTarget, "index"], { cache: verificationCacheDir, timeout: 300_000 });
-  assert.match(indexed.stdout, /SOMA 0\.3\.0/);
+  assert.match(indexed.stdout, new RegExp(`LexCAT ${lexcatManifest.version.replace(/\./g, "\\.")}`));
 
   const sharedKbName = `${kbName}-shared`;
   const sharedTarget = `${sharedKbName}.${namespaceKey}`;
@@ -759,16 +743,18 @@ test("self-cleaning live round trip exercises CLI writes, reads, AI, and issues"
   rmSync(articleDir, { recursive: true, force: true });
 });
 
-test("live clients reuse one verified retrieval model", () => {
-  assert.ok(modelDirIsVerified(suiteModelDir), "the live suite did not retain a verified model directory");
-  if (process.env.WIKIKB_SOMA_MODEL_DIR) {
-    assert.equal(suiteModelDir, resolve(process.env.WIKIKB_SOMA_MODEL_DIR));
-    return;
+test("live clients reuse one verified vendored runtime", () => {
+  const installDir = `v${lexcatManifest.version}-${process.platform}-${process.arch}`;
+  const artifact = lexcatManifest.artifacts.find(
+    (candidate) => candidate.platform === process.platform && candidate.arch === process.arch,
+  );
+  const installed = [cacheDir, verificationCacheDir, sharedCacheVerificationDir]
+    .map((root) => join(root, "runtime", "lexcat", installDir, artifact.executable))
+    .filter((path) => existsSync(path));
+  assert.ok(installed.length > 0, "the live suite never materialized the vendored runtime");
+  for (const path of installed) {
+    assert.equal(createHash("sha256").update(readFileSync(path)).digest("hex"), artifact.executable_sha256);
   }
-  const managed = [cacheDir, verificationCacheDir, sharedCacheVerificationDir]
-    .map((root) => join(root, "runtime", "soma", "models", somaManifest.model.name))
-    .filter((path) => modelDirIsVerified(path));
-  assert.deepEqual(managed, [suiteModelDir]);
 });
 
 test("live sync is idempotent and keeps the cached remote credential-free", () => {
@@ -848,8 +834,8 @@ test("all prompt tasks use live retrieval and expose cited sources", () => {
 test("live source changes invalidate, republish, and restore the shared index", () => {
   ensureVerificationKb();
   runOk([verificationTarget, "index"], { cache: verificationCacheDir, timeout: 300_000 });
-  const sidecarDir = join(verificationCacheDir, verificationKbName, "index-store", "soma-corpus");
-  const oldSidecarPath = readdirSync(sidecarDir).map((entry) => join(sidecarDir, entry)).find((path) => path.endsWith(".soma.json"));
+  const sidecarDir = join(verificationCacheDir, verificationKbName, "index-store", "lexcat-corpus");
+  const oldSidecarPath = readdirSync(sidecarDir).map((entry) => join(sidecarDir, entry)).find((path) => path.endsWith(".lexcat.json"));
   assert.ok(oldSidecarPath);
   const oldDigest = JSON.parse(readFileSync(oldSidecarPath, "utf8")).source_digest;
 
@@ -903,8 +889,8 @@ test("live shared cache is a bounded, verified, parentless snapshot", () => {
   assert.ok(files.every((path) => !path.endsWith(".md")));
   for (const path of manifests) assert.ok(archives.has(path.replace(/\.manifest\.json$/, ".tar.gz")));
 
-  const sidecarDir = join(verificationCacheDir, verificationKbName, "index-store", "soma-corpus");
-  const sidecarPath = readdirSync(sidecarDir).map((entry) => join(sidecarDir, entry)).find((path) => path.endsWith(".soma.json"));
+  const sidecarDir = join(verificationCacheDir, verificationKbName, "index-store", "lexcat-corpus");
+  const sidecarPath = readdirSync(sidecarDir).map((entry) => join(sidecarDir, entry)).find((path) => path.endsWith(".lexcat.json"));
   assert.ok(sidecarPath, "live index sidecar is missing");
   const sidecar = JSON.parse(readFileSync(sidecarPath, "utf8"));
   const manifestPath = `.wikikb-cache/v1/indexes/${sidecar.index_name}.manifest.json`;
@@ -940,37 +926,38 @@ test("live shared cache is a bounded, verified, parentless snapshot", () => {
   }
 });
 
-test("vendored SOMA indexes and queries the live integration namespace", () => {
+test("vendored LexCAT indexes and queries the live integration namespace", () => {
   ensureVerificationKb();
   const result = runOk([verificationTarget, "index"], { cache: verificationCacheDir, timeout: 300_000 });
   assert.match(result.stdout, /shared cache current|restored from shared wiki cache/);
-  const indexDir = join(verificationCacheDir, verificationKbName, "index-store", "soma-corpus");
-  assert.ok(readdirSync(indexDir).some((entry) => entry.endsWith(".soma.json")));
+  const indexDir = join(verificationCacheDir, verificationKbName, "index-store", "lexcat-corpus");
+  assert.ok(readdirSync(indexDir).some((entry) => entry.endsWith(".lexcat.json")));
   const query = runOk([verificationTarget, "search", runId, "--top", "3"], { cache: verificationCacheDir, timeout: 120_000 });
   assert.match(query.stdout, new RegExp(runId));
 });
 
-test("first retrieval installs and verifies the pinned model transactionally", () => {
-  const modelKbName = `${kbName}-model`;
-  const modelTarget = `${modelKbName}.${namespaceKey}`;
-  const withoutPreinstalledModel = { WIKIKB_SOMA_MODEL_DIR: "" };
-  runOk(["add", modelKbName, slug], { cache: modelBootstrapCacheDir, extraEnv: withoutPreinstalledModel });
-  runOk([modelKbName, "sync"], { cache: modelBootstrapCacheDir, extraEnv: withoutPreinstalledModel, timeout: 180_000 });
-  runOk([modelTarget, "index"], { cache: modelBootstrapCacheDir, extraEnv: withoutPreinstalledModel, timeout: 300_000 });
-  const search = runOk([modelTarget, "search", runId, "--top", "3"], {
-    cache: modelBootstrapCacheDir,
-    extraEnv: withoutPreinstalledModel,
+test("first retrieval installs and verifies the pinned runtime transactionally", () => {
+  const runtimeKbName = `${kbName}-runtime`;
+  const runtimeTarget = `${runtimeKbName}.${namespaceKey}`;
+  runOk(["add", runtimeKbName, slug], { cache: runtimeBootstrapCacheDir });
+  runOk([runtimeKbName, "sync"], { cache: runtimeBootstrapCacheDir, timeout: 180_000 });
+  runOk([runtimeTarget, "index"], { cache: runtimeBootstrapCacheDir, timeout: 300_000 });
+  const search = runOk([runtimeTarget, "search", runId, "--top", "3"], {
+    cache: runtimeBootstrapCacheDir,
     timeout: 720_000,
   });
   assert.match(search.stdout, new RegExp(runId));
 
-  const manifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "soma", "manifest.json"), "utf8"));
-  const modelRoot = join(modelBootstrapCacheDir, "runtime", "soma", "models");
-  const modelDir = join(modelRoot, manifest.model.name);
-  for (const [file, digest] of Object.entries(manifest.model.files)) {
-    assert.equal(createHash("sha256").update(readFileSync(join(modelDir, file))).digest("hex"), digest, file);
-  }
-  assert.ok(!readdirSync(modelRoot).some((entry) => entry.includes(".install-")));
+  const artifact = lexcatManifest.artifacts.find(
+    (candidate) => candidate.platform === process.platform && candidate.arch === process.arch,
+  );
+  const runtimeRoot = join(runtimeBootstrapCacheDir, "runtime", "lexcat");
+  const installDir = join(runtimeRoot, `v${lexcatManifest.version}-${process.platform}-${process.arch}`);
+  assert.equal(
+    createHash("sha256").update(readFileSync(join(installDir, artifact.executable))).digest("hex"),
+    artifact.executable_sha256,
+  );
+  assert.ok(!readdirSync(runtimeRoot).some((entry) => entry.startsWith(".extract-")));
 });
 
 test("Copilot is explicitly selected for a live text-only generation", () => {

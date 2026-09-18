@@ -38,8 +38,8 @@ jobs:
       - name: Run offline checks
         run: npm run check:offline
 
-  soma-runtimes:
-    name: SOMA ${{ matrix.name }}
+  lexcat-runtimes:
+    name: LexCAT ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -47,24 +47,28 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-latest
-            archive: soma-v0.3.0-linux-x86_64.tar.gz
-            executable: soma
+            platform: linux
+            arch: x64
+            archive: lexcat-v0.0.20-linux-x86_64.tar.gz
+            executable: lexcat
           - name: Linux arm64
             os: ubuntu-24.04-arm
-            archive: soma-v0.3.0-linux-arm64.tar.gz
-            executable: soma
+            platform: linux
+            arch: arm64
+            archive: lexcat-v0.0.20-linux-arm64.tar.gz
+            executable: lexcat
           - name: macOS arm64
             os: macos-15
-            archive: soma-v0.3.0-macos-arm64.tar.gz
-            executable: soma
+            platform: darwin
+            arch: arm64
+            archive: lexcat-v0.0.20-macos-arm64.tar.gz
+            executable: lexcat
           - name: Windows x64
             os: windows-latest
-            archive: soma-v0.3.0-windows-x86_64.zip
-            executable: soma.exe
-          - name: Windows arm64
-            os: windows-11-arm
-            archive: soma-v0.3.0-windows-arm64.zip
-            executable: soma.exe
+            platform: win32
+            arch: x64
+            archive: lexcat-v0.0.20-windows-x86_64.zip
+            executable: lexcat.exe
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,56 +78,103 @@ jobs:
         with:
           node-version: 24
 
-      - name: Cache retrieval model
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/soma-model
-          key: soma-model-v0.3.0-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Exercise shipped SOMA binary
+      - name: Exercise shipped LexCAT binary
         shell: bash
         run: |
           set -euo pipefail
-          runtime_dir="$RUNNER_TEMP/soma-runtime"
+          runtime_dir="$RUNNER_TEMP/lexcat-runtime"
           mkdir -p "$runtime_dir/corpus"
-          archive="vendor/soma/${{ matrix.archive }}"
+          archive="vendor/lexcat/${{ matrix.archive }}"
           if [[ "$archive" == *.zip ]]; then
             7z x "$archive" -o"$runtime_dir"
           else
             tar -xzf "$archive" -C "$runtime_dir"
           fi
           chmod +x "$runtime_dir/${{ matrix.executable }}"
-          "$runtime_dir/${{ matrix.executable }}" --version | grep -F "0.3.0"
+          # 0.0.20 stamps the real release version into the binary (upstream #234),
+          # so --version pins both the release number and the index schema, on top
+          # of the manifest checksum verified above.
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync } = require("node:fs");
+            const manifest = JSON.parse(readFileSync("vendor/lexcat/manifest.json", "utf8"));
+            const artifact = manifest.artifacts.find((entry) => entry.platform === process.argv[2] && entry.arch === process.argv[3]);
+            if (!artifact) throw new Error("no vendored artifact for " + process.argv[2] + "/" + process.argv[3]);
+            const digest = createHash("sha256").update(readFileSync(process.argv[1])).digest("hex");
+            if (digest !== artifact.executable_sha256) throw new Error("executable checksum mismatch: " + digest);
+          ' "$runtime_dir/${{ matrix.executable }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
+          schema="$(node -p 'JSON.parse(require("node:fs").readFileSync("vendor/lexcat/manifest.json","utf8")).index_schema_version')"
+          version="$(node -p 'JSON.parse(require("node:fs").readFileSync("vendor/lexcat/manifest.json","utf8")).version')"
+          "$runtime_dir/${{ matrix.executable }}" --version | grep -q "index schema $schema"
+          "$runtime_dir/${{ matrix.executable }}" --version | grep -q "lexcat $version"
           cp -R wiki-mirror/. "$runtime_dir/corpus/"
           cd "$runtime_dir"
-          "./${{ matrix.executable }}" index build corpus --name ci-smoke --title-field _stem --include-types md --no-incremental
-          index_db="$(find "$runtime_dir" -path '*/indexes/ci-smoke/index.db' -print -quit)"
-          test -n "$index_db"
+          # Mirrors how WikiKB indexes: no config file, counts read out of the
+          # machine-readable report. An empty corpus and a collapsed vocabulary
+          # both build and query at exit 0, so both counts are asserted here.
+          "./${{ matrix.executable }}" --index ci-smoke.db build corpus --json > build.json
+          cat build.json
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const report = JSON.parse(readFileSync("build.json", "utf8"));
+            if (!(report.chunks > 0)) throw new Error("build indexed no chunks: " + JSON.stringify(report));
+            if (!(report.terms > 0)) throw new Error("build indexed no terms: " + JSON.stringify(report));
+          '
+          test -f ci-smoke.db
 
-      - name: Exercise SOMA retrieval
+      - name: Exercise LexCAT retrieval
         shell: bash
         run: |
           set -euo pipefail
-          runtime_dir="$RUNNER_TEMP/soma-runtime"
-          model_dir="$RUNNER_TEMP/soma-model"
-          if [[ ! -f "$model_dir/model.safetensors" ]]; then
-            "$runtime_dir/${{ matrix.executable }}" util models install model2vec-potion-retrieval-32m \
-              --revision 6fc8051fab2a1e0ee76689cf08c853792ac285e7 \
-              --output "$model_dir"
-          fi
-          node -e 'const fs=require("fs"); fs.writeFileSync(process.argv[1], JSON.stringify({query:{model2vec_model_path:process.argv[2]}}));' "$runtime_dir/query-preset.json" "$model_dir"
-          index_db="$(find "$runtime_dir" -path '*/indexes/ci-smoke/index.db' -print -quit)"
-          "$runtime_dir/${{ matrix.executable }}" query --index "$(dirname "$index_db")" --preset "$runtime_dir/query-preset.json" --max-tokens 4000 --output - "agentic workflows" > "$runtime_dir/context.json"
-          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const groups=[...(p.communities||[]),...(p.topics||[])]; const chunks=[...(p.chunks||[]),...groups.flatMap(c=>c.chunks||[])]; if(!chunks.some(c=>String(c.text||"").toLowerCase().includes("agentic workflow"))) process.exit(1);' "$runtime_dir/context.json"
+          runtime_dir="$RUNNER_TEMP/lexcat-runtime"
+          cd "$runtime_dir"
+          "./${{ matrix.executable }}" --index ci-smoke.db query "agentic workflows" --n 10 --json > hits.json
+          # --json carries each hit's chunk text, which is how WikiKB reads
+          # results, so the assertion never touches the on-disk schema.
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const { hits } = JSON.parse(readFileSync("hits.json", "utf8"));
+            if (!Array.isArray(hits) || hits.length === 0) throw new Error("LexCAT returned no hits");
+            const matched = hits.some((hit) => String(hit.text ?? "").toLowerCase().includes("agentic workflow"));
+            if (!matched) throw new Error("no retrieved chunk contained the query terms");
+          '
 
-      - name: Exercise WikiKB runtime integration and concurrent model use
+      - name: Exercise incremental reindex
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/lexcat-runtime"
+          cd "$runtime_dir"
+          printf -- '---\ntitle: "CI Delta"\nwikikb_path: "concepts/ci-delta.md"\n---\n\n# CI Delta\n\nA sentinel page mentioning vermiculite telemetry.\n' > corpus/ci-delta.md
+          "./${{ matrix.executable }}" --index ci-smoke.db sync corpus --json > sync.json
+          cat sync.json
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const report = JSON.parse(readFileSync("sync.json", "utf8"));
+            if (!(report.chunks > 0) || !(report.terms > 0)) throw new Error("sync left an unsearchable index: " + JSON.stringify(report));
+            if (!(report.added >= 1)) throw new Error("sync did not report the added page: " + JSON.stringify(report));
+          '
+          "./${{ matrix.executable }}" --index ci-smoke.db query "vermiculite telemetry" --n 5 --json > delta.json
+          # Frontmatter staged with a document must come back on the hit payload,
+          # because that is where WikiKB reads a result's wiki path and title.
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const { hits } = JSON.parse(readFileSync("delta.json", "utf8"));
+            const hit = hits.find((entry) => String(entry.doc_id ?? "") === "ci-delta.md");
+            if (!hit) throw new Error("incremental sync did not make the new page retrievable");
+            if (hit.payload?.fields?.wikikb_path !== "concepts/ci-delta.md") {
+              throw new Error("frontmatter payload missing: " + JSON.stringify(hit.payload));
+            }
+          '
+
+      - name: Exercise WikiKB runtime integration
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           npm run build:wkb
-          WIKIKB_SOMA_MODEL_DIR="$RUNNER_TEMP/soma-model" node --test \
-            --test-name-pattern='vendored SOMA indexes|concurrent retrieval' \
+          node --test \
+            --test-name-pattern='vendored LexCAT indexes|concurrent retrieval' \
             tools/wikikb-local/test/smoke.mjs
 
   workflows:

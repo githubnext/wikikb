@@ -52,7 +52,6 @@ interface SearchHit {
   path: string;
   text: string;
   score: number;
-  community?: unknown;
 }
 
 type PromptTask = "answer" | "summarize" | "rewrite" | "extract" | "timeline";
@@ -144,60 +143,38 @@ interface NamespaceIndexState {
   index_items?: number;
 }
 
-interface SomaQueryChunk {
-  chunk_id?: number | string;
-  doc_id?: string;
-  title?: string;
-  text?: string;
-  source_file?: string;
-  wikikb_path?: string;
-  score?: number;
+interface LexcatHit {
+  chunkId: string;
+  docId: string;
+  score: number;
+  text: string;
+  fields: Record<string, string>;
 }
 
-interface SomaQueryCommunity {
-  community_id?: number | string;
-  topic_id?: number | string;
-  chunks?: SomaQueryChunk[];
-}
-
-interface SomaQueryPayload {
-  communities?: SomaQueryCommunity[];
-  topics?: SomaQueryCommunity[];
-  chunks?: SomaQueryChunk[];
-}
-
-interface SomaModel {
-  name: string;
-  install_argument: string;
-  repository: string;
-  revision: string;
-  license: string;
-  files: Record<string, string>;
-}
-
-interface SomaArtifact {
+interface LexcatArtifact {
   platform: NodeJS.Platform;
   arch: string;
   archive: string;
   format: "tar.gz" | "zip";
   executable: string;
   provenance: string;
-  upstream_archive_sha256: string;
+  upstream_asset: string;
+  upstream_sha256: string;
   archive_sha256: string;
   executable_sha256: string;
 }
 
-interface SomaManifest {
+interface LexcatManifest {
   schema_version: number;
   name: string;
   version: string;
   notices: string;
   notices_sha256: string;
-  model: SomaModel;
-  artifacts: SomaArtifact[];
+  index_schema_version: number;
+  artifacts: LexcatArtifact[];
 }
 
-interface SomaRuntime {
+interface LexcatRuntime {
   bin: string;
   version: string;
   binarySha256: string;
@@ -221,8 +198,8 @@ interface LocalIndexMetadata {
   items_written: number;
   last_refreshed_at: string;
   corpus_dir: string;
-  index_dir: string;
-  runtime_source: SomaRuntime["source"];
+  index_db: string;
+  runtime_source: LexcatRuntime["source"];
 }
 
 interface SharedIndexManifest {
@@ -252,13 +229,12 @@ const DEFAULT_MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 const AI_PROVIDERS = new Set<AiProvider>(["copilot", "openai", "command"]);
 const SHARED_CACHE_BRANCH = "wikikb-cache-v1";
 const SHARED_CACHE_SCHEMA = 1;
-const INDEX_CONFIG_VERSION = "wikikb-soma-index-v1";
+const INDEX_CONFIG_VERSION = "wikikb-lexcat-index-v2";
 const MAX_SHARED_CACHE_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_SHARED_CACHE_ENTRIES = 8;
-const SOMA_MODEL_INSTALL_TIMEOUT_MS = 600_000;
-const SOMA_MODEL_INSTALL_ATTEMPTS = 3;
-const SOMA_MODEL_LOCK_STALE_MS = 15 * 60_000;
-const SOMA_MODEL_LOCK_WAIT_MS = 16 * 60_000;
+const LEXCAT_QUERY_HITS = 50;
+const CORPUS_TITLE_FIELD = "title";
+const CORPUS_PATH_FIELD = "wikikb_path";
 const PROMPT_TASKS = new Set<PromptTask>(["answer", "summarize", "rewrite", "extract", "timeline"]);
 const DIRECT_RESPONSE_META_PROMPT = `# Direct response contract
 
@@ -269,7 +245,7 @@ Never open with a preface about the knowledge base, available entries, retrieved
 In particular, do not begin with phrases such as "Based on...", "According to...", "From the available...", "The provided...", or "Here is what can be determined...".
 Before returning the response, silently inspect the first paragraph and delete any meta-commentary about how the answer was produced.
 If information is genuinely missing, identify the specific missing fact where it matters; do not use uncertainty as an opening disclaimer.`;
-let somaRuntime: SomaRuntime | undefined;
+let lexcatRuntime: LexcatRuntime | undefined;
 
 function rootCacheDir(): string {
   const dir = process.env.WIKIKB_CACHE_DIR || join(homedir(), ".wikikb");
@@ -802,35 +778,26 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function somaVendorDir(): string {
-  return join(repoRootDir(), "vendor", "soma");
+function lexcatVendorDir(): string {
+  return join(repoRootDir(), "vendor", "lexcat");
 }
 
-function readSomaManifest(): SomaManifest {
-  const path = join(somaVendorDir(), "manifest.json");
-  const raw = readJsonFile(path, "SOMA runtime manifest");
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`Invalid SOMA runtime manifest at ${path}`);
-  const manifest = raw as Partial<SomaManifest>;
+function readLexcatManifest(): LexcatManifest {
+  const path = join(lexcatVendorDir(), "manifest.json");
+  const raw = readJsonFile(path, "LexCAT runtime manifest");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`Invalid LexCAT runtime manifest at ${path}`);
+  const manifest = raw as Partial<LexcatManifest>;
   if (
     manifest.schema_version !== 1 ||
-    manifest.name !== "SOMA" ||
+    manifest.name !== "LEXCAT" ||
     typeof manifest.version !== "string" ||
     typeof manifest.notices !== "string" ||
     basename(manifest.notices) !== manifest.notices ||
     !/^[a-f0-9]{64}$/.test(manifest.notices_sha256 || "") ||
-    !manifest.model ||
-    typeof manifest.model !== "object" ||
-    typeof manifest.model.name !== "string" ||
-    basename(manifest.model.name) !== manifest.model.name ||
-    typeof manifest.model.install_argument !== "string" ||
-    typeof manifest.model.repository !== "string" ||
-    !/^[a-f0-9]{40}$/.test(manifest.model.revision || "") ||
-    manifest.model.license !== "MIT" ||
-    !manifest.model.files ||
-    typeof manifest.model.files !== "object" ||
+    !Number.isInteger(manifest.index_schema_version) ||
     !Array.isArray(manifest.artifacts)
   ) {
-    throw new Error(`Invalid SOMA runtime manifest at ${path}`);
+    throw new Error(`Invalid LexCAT runtime manifest at ${path}`);
   }
   for (const artifact of manifest.artifacts) {
     if (
@@ -844,206 +811,22 @@ function readSomaManifest(): SomaManifest {
       typeof artifact.executable !== "string" ||
       basename(artifact.executable) !== artifact.executable ||
       typeof artifact.provenance !== "string" ||
-      !/^[a-f0-9]{64}$/.test(artifact.upstream_archive_sha256) ||
+      typeof artifact.upstream_asset !== "string" ||
+      !/^[a-f0-9]{64}$/.test(artifact.upstream_sha256) ||
       !/^[a-f0-9]{64}$/.test(artifact.archive_sha256) ||
       !/^[a-f0-9]{64}$/.test(artifact.executable_sha256)
     ) {
-      throw new Error(`Invalid SOMA artifact entry in ${path}`);
+      throw new Error(`Invalid LexCAT artifact entry in ${path}`);
     }
   }
-  for (const [file, digest] of Object.entries(manifest.model.files)) {
-    if (basename(file) !== file || !/^[a-f0-9]{64}$/.test(digest)) {
-      throw new Error(`Invalid SOMA model entry in ${path}`);
-    }
-  }
-  return manifest as SomaManifest;
+  return manifest as LexcatManifest;
 }
 
 function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function somaModelIsCurrent(modelDir: string, model: SomaModel): boolean {
-  return Object.entries(model.files).every(([file, digest]) => {
-    const path = join(modelDir, file);
-    return isRegularFile(path) && sha256File(path) === digest;
-  });
-}
-
-function removeInvalidSomaModelFiles(modelDir: string, model: SomaModel): void {
-  for (const [file, digest] of Object.entries(model.files)) {
-    const path = join(modelDir, file);
-    if (!isRegularFile(path) || sha256File(path) !== digest) rmSync(path, { force: true });
-  }
-}
-
-function somaQueryPreset(modelDir: string): string {
-  const presetDir = join(rootCacheDir(), "runtime", "soma", "presets");
-  const presetPath = join(presetDir, "query-v0.3.0.json");
-  const body = `${JSON.stringify({ query: { model2vec_model_path: modelDir } }, null, 2)}\n`;
-  mkdirSync(presetDir, { recursive: true, mode: 0o700 });
-  if (!existsSync(presetPath) || readFileSync(presetPath, "utf8") !== body) {
-    const temporaryPath = `${presetPath}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      writeFileSync(temporaryPath, body, { mode: 0o600 });
-      renameSync(temporaryPath, presetPath);
-    } finally {
-      rmSync(temporaryPath, { force: true });
-    }
-  }
-  return presetPath;
-}
-
-function sleepSync(milliseconds: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function processIsRunning(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function somaModelLockIsAbandoned(lockDir: string): boolean {
-  let age = 0;
-  try {
-    age = Date.now() - statSync(lockDir).mtimeMs;
-  } catch {
-    return false;
-  }
-  if (age > SOMA_MODEL_LOCK_STALE_MS) return true;
-  try {
-    const owner = JSON.parse(readFileSync(join(lockDir, "owner.json"), "utf8")) as { pid?: unknown };
-    return typeof owner.pid === "number" && !processIsRunning(owner.pid);
-  } catch {
-    return age > 5000;
-  }
-}
-
-function reclaimAbandonedSomaModelLock(lockDir: string): void {
-  const reclaimDir = `${lockDir}.reclaim`;
-  try {
-    mkdirSync(reclaimDir, { mode: 0o700 });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    if (somaModelLockIsAbandoned(reclaimDir)) rmSync(reclaimDir, { recursive: true, force: true });
-    return;
-  }
-  try {
-    writeFileSync(
-      join(reclaimDir, "owner.json"),
-      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
-      { mode: 0o600 },
-    );
-  } catch (error) {
-    rmSync(reclaimDir, { recursive: true, force: true });
-    throw error;
-  }
-  try {
-    if (somaModelLockIsAbandoned(lockDir)) rmSync(lockDir, { recursive: true, force: true });
-  } finally {
-    rmSync(reclaimDir, { recursive: true, force: true });
-  }
-}
-
-function acquireSomaModelLock(lockDir: string, modelDir: string, model: SomaModel): boolean {
-  const startedAt = Date.now();
-  let announcedWait = false;
-  while (Date.now() - startedAt < SOMA_MODEL_LOCK_WAIT_MS) {
-    if (somaModelIsCurrent(modelDir, model)) return false;
-    try {
-      mkdirSync(lockDir, { mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (somaModelLockIsAbandoned(lockDir)) {
-        reclaimAbandonedSomaModelLock(lockDir);
-        continue;
-      }
-      if (!announcedWait) {
-        console.error("Waiting for another WikiKB process to install the SOMA retrieval model...");
-        announcedWait = true;
-      }
-      sleepSync(100);
-      continue;
-    }
-    try {
-      writeFileSync(
-        join(lockDir, "owner.json"),
-        `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
-        { mode: 0o600 },
-      );
-      return true;
-    } catch (error) {
-      rmSync(lockDir, { recursive: true, force: true });
-      throw error;
-    }
-  }
-  throw new Error("Timed out waiting for another WikiKB process to install the SOMA retrieval model");
-}
-
-function ensureSomaModel(runtime: SomaRuntime): string | undefined {
-  if (runtime.source !== "vendored") return undefined;
-  const manifest = readSomaManifest();
-  const configured = process.env.WIKIKB_SOMA_MODEL_DIR;
-  const modelDir = configured
-    ? resolve(configured)
-    : join(rootCacheDir(), "runtime", "soma", "models", manifest.model.name);
-  if (somaModelIsCurrent(modelDir, manifest.model)) return somaQueryPreset(modelDir);
-  if (configured) {
-    throw new Error(`Configured SOMA model is missing or invalid: ${modelDir}`);
-  }
-
-  const modelRoot = dirname(modelDir);
-  const lockDir = join(modelRoot, `.${manifest.model.name}.install.lock`);
-  mkdirSync(modelRoot, { recursive: true, mode: 0o700 });
-  const ownsLock = acquireSomaModelLock(lockDir, modelDir, manifest.model);
-  if (!ownsLock) return somaQueryPreset(modelDir);
-
-  let stagingDir: string | undefined;
-  try {
-    if (somaModelIsCurrent(modelDir, manifest.model)) return somaQueryPreset(modelDir);
-    stagingDir = mkdtempSync(join(modelRoot, `.${manifest.model.name}.install-`));
-    let failureDetails = "checksum verification failed";
-    for (let attempt = 1; attempt <= SOMA_MODEL_INSTALL_ATTEMPTS; attempt += 1) {
-      console.error(`Installing required SOMA retrieval model${attempt > 1 ? ` (attempt ${attempt}/${SOMA_MODEL_INSTALL_ATTEMPTS})` : ""}...`);
-      const installed = spawnSync(
-        runtime.bin,
-        [
-          "util", "models", "install", manifest.model.install_argument,
-          "--revision", manifest.model.revision,
-          "--output", stagingDir,
-        ],
-        {
-          cwd: rootCacheDir(),
-          env: { ...process.env },
-          encoding: "utf8",
-          timeout: SOMA_MODEL_INSTALL_TIMEOUT_MS,
-          maxBuffer: 8 * 1024 * 1024,
-        },
-      );
-      if (!installed.error && installed.status === 0 && somaModelIsCurrent(stagingDir, manifest.model)) break;
-      failureDetails = redactSecrets(installed.stderr || installed.stdout || installed.error?.message || "checksum verification failed").trim();
-      removeInvalidSomaModelFiles(stagingDir, manifest.model);
-      if (attempt < SOMA_MODEL_INSTALL_ATTEMPTS) sleepSync(attempt * 1000);
-    }
-    if (!somaModelIsCurrent(stagingDir, manifest.model)) {
-      throw new Error(`Could not install the required SOMA retrieval model${failureDetails ? `:\n${failureDetails}` : ""}`);
-    }
-    rmSync(modelDir, { recursive: true, force: true });
-    renameSync(stagingDir, modelDir);
-    stagingDir = undefined;
-    return somaQueryPreset(modelDir);
-  } finally {
-    if (stagingDir) rmSync(stagingDir, { recursive: true, force: true });
-    rmSync(lockDir, { recursive: true, force: true });
-  }
-}
-
-function extractSomaArtifact(artifact: SomaArtifact, archivePath: string, installDir: string): string {
+function extractLexcatArtifact(artifact: LexcatArtifact, archivePath: string, installDir: string): string {
   const runtimeRoot = dirname(installDir);
   mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
   const temporaryDir = mkdtempSync(join(runtimeRoot, ".extract-"));
@@ -1054,54 +837,100 @@ function extractSomaArtifact(artifact: SomaArtifact, archivePath: string, instal
     const result = spawnSync("tar", args, { encoding: "utf8", timeout: 120_000 });
     if (result.error || result.status !== 0) {
       const details = (result.stderr || result.stdout || result.error?.message || "unknown extraction error").trim();
-      throw new Error(`Could not extract vendored SOMA archive: ${details}`);
+      throw new Error(`Could not extract vendored LexCAT archive: ${details}`);
     }
     const extracted = join(temporaryDir, artifact.executable);
-    if (!isRegularFile(extracted)) throw new Error(`Vendored SOMA archive is missing ${artifact.executable}`);
+    if (!isRegularFile(extracted)) throw new Error(`Vendored LexCAT archive is missing ${artifact.executable}`);
     const digest = sha256File(extracted);
-    if (digest !== artifact.executable_sha256) throw new Error(`Vendored SOMA executable checksum mismatch for ${artifact.archive}`);
+    if (digest !== artifact.executable_sha256) throw new Error(`Vendored LexCAT executable checksum mismatch for ${artifact.archive}`);
     chmodSync(extracted, 0o755);
-    rmSync(installDir, { recursive: true, force: true });
-    renameSync(temporaryDir, installDir);
-    return join(installDir, artifact.executable);
+    return publishLexcatRuntime(temporaryDir, installDir, artifact);
   } finally {
     rmSync(temporaryDir, { recursive: true, force: true });
   }
 }
 
-function resolveSomaRuntime(): SomaRuntime {
-  if (somaRuntime) return somaRuntime;
+function publishLexcatRuntime(temporaryDir: string, installDir: string, artifact: LexcatArtifact): string {
+  const published = join(installDir, artifact.executable);
+  // Concurrent `wkb` processes can extract the same runtime at once. Publishing is
+  // a bare rename so an install directory that a sibling has already verified is
+  // never unlinked out from under the binary that sibling is about to spawn.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      renameSync(temporaryDir, installDir);
+      return published;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // Renaming onto a populated directory fails with ENOTEMPTY on POSIX and
+      // EEXIST/EPERM on Windows. Anything else is a real failure.
+      if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "EPERM" && code !== "EACCES") throw error;
+    }
+    // Something is already installed. If a sibling published a runtime matching the
+    // pinned digest, adopt it rather than replacing a directory that is already good.
+    if (isRegularFile(published) && sha256File(published) === artifact.executable_sha256) return published;
+    // Otherwise the cached directory is unusable, so swap it aside and retry.
+    const staleDir = join(dirname(installDir), `.stale-${process.pid}-${attempt}-${Date.now()}`);
+    try {
+      renameSync(installDir, staleDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      continue;
+    }
+    rmSync(staleDir, { recursive: true, force: true });
+  }
+  throw new Error(`Could not publish the vendored LexCAT runtime to ${installDir}`);
+}
 
-  const explicit = process.env.WIKIKB_SOMA_BIN;
+function selectLexcatArtifact(manifest: LexcatManifest): LexcatArtifact | undefined {
+  const exact = manifest.artifacts.find(
+    (candidate) => candidate.platform === process.platform && candidate.arch === process.arch,
+  );
+  if (exact) return exact;
+  // LexCAT publishes no native win32/arm64 build. Windows on ARM runs the x64
+  // executable under emulation, so fall back rather than refusing to index.
+  if (process.platform === "win32" && process.arch === "arm64") {
+    return manifest.artifacts.find((candidate) => candidate.platform === "win32" && candidate.arch === "x64");
+  }
+  return undefined;
+}
+
+function resolveLexcatRuntime(): LexcatRuntime {
+  if (lexcatRuntime) return lexcatRuntime;
+
+  const explicit = process.env.WIKIKB_LEXCAT_BIN;
   if (explicit) {
     const bin = resolve(explicit);
-    if (!isRegularFile(bin)) throw new Error(`Configured SOMA executable does not exist: ${bin}`);
-    somaRuntime = { bin, version: "override", binarySha256: sha256File(bin), source: "override" };
-    return somaRuntime;
+    if (!isRegularFile(bin)) throw new Error(`Configured LexCAT executable does not exist: ${bin}`);
+    lexcatRuntime = { bin, version: "override", binarySha256: sha256File(bin), source: "override" };
+    return lexcatRuntime;
   }
 
-  const manifest = readSomaManifest();
-  const noticesPath = join(somaVendorDir(), manifest.notices);
+  const manifest = readLexcatManifest();
+  const noticesPath = join(lexcatVendorDir(), manifest.notices);
   if (!isRegularFile(noticesPath) || sha256File(noticesPath) !== manifest.notices_sha256) {
-    throw new Error(`Vendored SOMA notice is missing or invalid: ${manifest.notices}`);
+    throw new Error(`Vendored LexCAT notice is missing or invalid: ${manifest.notices}`);
   }
-  const artifact = manifest.artifacts.find((candidate) => candidate.platform === process.platform && candidate.arch === process.arch);
+  const artifact = selectLexcatArtifact(manifest);
   if (!artifact) {
     const supported = manifest.artifacts.map((candidate) => `${candidate.platform}/${candidate.arch}`).join(", ");
-    throw new Error(`Vendored SOMA ${manifest.version} does not include ${process.platform}/${process.arch}. Supported: ${supported}.`);
+    throw new Error(
+      `WikiKB does not ship a LexCAT ${manifest.version} runtime for ${process.platform}/${process.arch}. ` +
+        `Vendored platforms: ${supported}. ` +
+        "Build or obtain a LexCAT executable for this platform and set WIKIKB_LEXCAT_BIN to its absolute path.",
+    );
   }
 
-  const archivePath = join(somaVendorDir(), artifact.archive);
-  if (!isRegularFile(archivePath)) throw new Error(`Vendored SOMA archive is missing: ${artifact.archive}`);
-  if (sha256File(archivePath) !== artifact.archive_sha256) throw new Error(`Vendored SOMA archive checksum mismatch for ${artifact.archive}`);
+  const archivePath = join(lexcatVendorDir(), artifact.archive);
+  if (!isRegularFile(archivePath)) throw new Error(`Vendored LexCAT archive is missing: ${artifact.archive}`);
+  if (sha256File(archivePath) !== artifact.archive_sha256) throw new Error(`Vendored LexCAT archive checksum mismatch for ${artifact.archive}`);
 
-  const installDir = join(rootCacheDir(), "runtime", "soma", `v${manifest.version}-${artifact.platform}-${artifact.arch}`);
+  const installDir = join(rootCacheDir(), "runtime", "lexcat", `v${manifest.version}-${artifact.platform}-${artifact.arch}`);
   let bin = join(installDir, artifact.executable);
   if (!isRegularFile(bin) || sha256File(bin) !== artifact.executable_sha256) {
-    bin = extractSomaArtifact(artifact, archivePath, installDir);
+    bin = extractLexcatArtifact(artifact, archivePath, installDir);
   }
-  somaRuntime = { bin, version: manifest.version, binarySha256: artifact.executable_sha256, source: "vendored" };
-  return somaRuntime;
+  lexcatRuntime = { bin, version: manifest.version, binarySha256: artifact.executable_sha256, source: "vendored" };
+  return lexcatRuntime;
 }
 
 function parseTags(raw?: string): Set<string> {
@@ -1306,7 +1135,7 @@ function corpusFileName(pagePath: string): string {
   return `${stem}-${digest}.md`;
 }
 
-function somaIndexName(target: KbTarget): string {
+function lexcatIndexName(target: KbTarget): string {
   const slug = getKbSlug(target.name);
   const namespaceSuffix = target.namespace.length ? `__${target.namespace.join("_")}` : "";
   const tagSuffix = target.indexTags?.length
@@ -1317,23 +1146,23 @@ function somaIndexName(target: KbTarget): string {
 }
 
 function corpusRoot(target: KbTarget): string {
-  return join(indexStoreDir(target.name), "soma-corpus");
+  return join(indexStoreDir(target.name), "lexcat-corpus");
 }
 
 function sidecarPath(target: KbTarget): string {
-  return join(corpusRoot(target), `${safeFileName(somaIndexName(target))}.soma.json`);
+  return join(corpusRoot(target), `${safeFileName(lexcatIndexName(target))}.lexcat.json`);
 }
 
-function somaOutputRoot(target: KbTarget): string {
-  return join(indexStoreDir(target.name), "soma-output");
+function lexcatOutputRoot(target: KbTarget): string {
+  return join(indexStoreDir(target.name), "lexcat-output");
 }
 
-function somaNativeIndexDir(target: KbTarget): string {
-  return join(somaOutputRoot(target), "indexes", safeDirName(somaIndexName(target)));
+function lexcatIndexDbPath(target: KbTarget): string {
+  return join(lexcatOutputRoot(target), `${safeFileName(lexcatIndexName(target))}.db`);
 }
 
 function indexReady(target: KbTarget): boolean {
-  return existsSync(sidecarPath(target)) && isRegularFile(join(somaNativeIndexDir(target), "index.db"));
+  return existsSync(sidecarPath(target)) && isRegularFile(lexcatIndexDbPath(target));
 }
 
 function titleFromPage(page: Page): string {
@@ -1356,60 +1185,48 @@ function sourceDigestForPages(pages: Page[]): string {
 function stageCorpus(target: KbTarget, force = false): StagedCorpus {
   const wd = autoSync(target.name);
   const root = corpusRoot(target);
-  const corpusDir = join(root, safeDirName(somaIndexName(target)));
+  const corpusDir = join(root, safeDirName(lexcatIndexName(target)));
   if (force) rmSync(corpusDir, { recursive: true, force: true });
   mkdirSync(corpusDir, { recursive: true });
 
   const pages = filterPagesByNamespace(loadPages(wd, new Set(target.indexTags || [])), target)
     .filter((page) => isIndexablePage(page, target));
 
-  const manifest: JsonObject = { documents: {} };
-  const documents = manifest.documents as Record<string, { path: string; content_hash: string; source_path: string }>;
   const keep = new Set<string>();
 
   for (const page of pages) {
     const filename = corpusFileName(page.path);
     const outputPath = join(corpusDir, filename);
     const title = titleFromPage(page);
-    const rendered = [
-      "---",
-      `title: ${JSON.stringify(title)}`,
-      `date: ${JSON.stringify(dateFromPage(page))}`,
-      `wikikb_path: ${JSON.stringify(page.path)}`,
-      `wikikb_kb: ${JSON.stringify(target.name)}`,
-      `wikikb_namespace: ${JSON.stringify(namespaceKey(target))}`,
-      "---",
-      "",
-      `# ${title}`,
-      "",
-      `Source path: ${page.path}`,
-      "",
-      page.body.trim(),
-      "",
-    ].join("\n");
+    const body = page.body.trim();
+    // LexCAT strips a leading frontmatter block out of the indexed text and
+    // returns it on every chunk derived from the document, so wiki identity
+    // travels with the document itself instead of a side manifest rejoined by
+    // doc id. The title is repeated as an H1 only when the body does not
+    // already lead with it, so title terms stay searchable without being
+    // double-weighted.
+    const prose = body === `# ${title}` || body.startsWith(`# ${title}\n`) ? body : `# ${title}\n\n${body}`;
+    const rendered = `---\n${CORPUS_TITLE_FIELD}: ${yamlScalar(title)}\n${CORPUS_PATH_FIELD}: ${yamlScalar(page.path)}\n---\n\n${prose}\n`;
     const hash = createHash("sha256").update(rendered).digest("hex");
     if (!existsSync(outputPath) || createHash("sha256").update(readFileSync(outputPath)).digest("hex") !== hash) {
       writeFileSync(outputPath, rendered);
     }
-    documents[page.path] = { path: filename, content_hash: hash, source_path: page.path };
     keep.add(filename);
   }
 
   for (const entry of readdirSync(corpusDir)) {
     if (entry.endsWith(".md") && !keep.has(entry)) rmSync(join(corpusDir, entry), { force: true });
   }
-  writeFileSync(join(corpusDir, ".wikikb-corpus.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  rmSync(join(corpusDir, ".wikikb-corpus.json"), { force: true });
+  // Written by releases that recovered wiki identity from a side manifest.
+  rmSync(join(root, `${safeFileName(lexcatIndexName(target))}.corpus.json`), { force: true });
   return { items: pages.length, corpusDir, sourceDigest: sourceDigestForPages(pages) };
 }
 
-function dateFromPage(page: Page): string {
-  const metadataDate = page.body.match(/^\s*\*{0,2}(?:date|ingested|updated|created)\*{0,2}\s*:\*{0,2}\s*(\d{4}-\d{2}-\d{2})/im)?.[1];
-  if (metadataDate) return metadataDate;
-  try {
-    return statSync(page.absolutePath).mtime.toISOString().slice(0, 10);
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
+// Frontmatter values are always double-quoted so a title containing a colon,
+// quote, or leading indicator character cannot change the YAML shape.
+function yamlScalar(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\s+/g, " ").trim()}"`;
 }
 
 function isIndexablePage(page: Page, target: KbTarget): boolean {
@@ -1419,7 +1236,7 @@ function isIndexablePage(page: Page, target: KbTarget): boolean {
   return page.path.startsWith("concepts/") || page.path.startsWith("sources/") || page.path.startsWith("queries/") || page.path === "Home.md";
 }
 
-function runtimeCompatibility(runtime: SomaRuntime): string {
+function runtimeCompatibility(runtime: LexcatRuntime): string {
   return runtime.source === "vendored" ? `release:${runtime.version}` : `override:${runtime.binarySha256}`;
 }
 
@@ -1439,23 +1256,22 @@ function readLocalIndexMetadata(target: KbTarget): LocalIndexMetadata | undefine
   }
 }
 
-function localIndexIsCurrent(target: KbTarget, staged: StagedCorpus, runtime: SomaRuntime): boolean {
-  if (!isRegularFile(join(somaNativeIndexDir(target), "index.db"))) return false;
+function localIndexIsCurrent(target: KbTarget, staged: StagedCorpus, runtime: LexcatRuntime): boolean {
+  if (!isRegularFile(lexcatIndexDbPath(target))) return false;
   const metadata = readLocalIndexMetadata(target);
   return Boolean(
     metadata &&
-    metadata.index_name === somaIndexName(target) &&
+    metadata.index_name === lexcatIndexName(target) &&
     metadata.source_digest === staged.sourceDigest &&
     metadata.index_config === INDEX_CONFIG_VERSION &&
     metadata.runtime_compatibility === runtimeCompatibility(runtime),
   );
 }
 
-function writeLocalIndexMetadata(target: KbTarget, staged: StagedCorpus, runtime: SomaRuntime): void {
-  const indexDir = somaNativeIndexDir(target);
+function writeLocalIndexMetadata(target: KbTarget, staged: StagedCorpus, runtime: LexcatRuntime): void {
   const metadata: LocalIndexMetadata = {
     schema_version: SHARED_CACHE_SCHEMA,
-    index_name: somaIndexName(target),
+    index_name: lexcatIndexName(target),
     source_digest: staged.sourceDigest,
     index_config: INDEX_CONFIG_VERSION,
     runtime_compatibility: runtimeCompatibility(runtime),
@@ -1464,7 +1280,7 @@ function writeLocalIndexMetadata(target: KbTarget, staged: StagedCorpus, runtime
     items_written: staged.items,
     last_refreshed_at: new Date().toISOString(),
     corpus_dir: staged.corpusDir,
-    index_dir: indexDir,
+    index_db: lexcatIndexDbPath(target),
     runtime_source: runtime.source,
   };
   mkdirSync(corpusRoot(target), { recursive: true });
@@ -1475,8 +1291,8 @@ function writeLocalIndexMetadata(target: KbTarget, staged: StagedCorpus, runtime
       kb: target.name,
       namespace: namespaceKey(target) || null,
       tags: target.indexTags || [],
-      runtime: "soma-cli",
-      soma_version: runtime.version,
+      runtime: "lexcat-cli",
+      lexcat_version: runtime.version,
       binary_sha256: runtime.binarySha256,
     }, null, 2)}\n`,
   );
@@ -1484,7 +1300,7 @@ function writeLocalIndexMetadata(target: KbTarget, staged: StagedCorpus, runtime
 }
 
 function sharedCacheBase(target: KbTarget): string {
-  return `.wikikb-cache/v${SHARED_CACHE_SCHEMA}/indexes/${safeDirName(somaIndexName(target))}`;
+  return `.wikikb-cache/v${SHARED_CACHE_SCHEMA}/indexes/${safeDirName(lexcatIndexName(target))}`;
 }
 
 function sharedCacheManifestPath(target: KbTarget): string {
@@ -1545,11 +1361,11 @@ function sharedManifestMatches(
   manifest: SharedIndexManifest | undefined,
   target: KbTarget,
   staged: StagedCorpus,
-  runtime: SomaRuntime,
+  runtime: LexcatRuntime,
 ): manifest is SharedIndexManifest {
   return Boolean(
     manifest &&
-    manifest.index_name === somaIndexName(target) &&
+    manifest.index_name === lexcatIndexName(target) &&
     manifest.source_digest === staged.sourceDigest &&
     manifest.index_config === INDEX_CONFIG_VERSION &&
     manifest.runtime_compatibility === runtimeCompatibility(runtime) &&
@@ -1557,7 +1373,11 @@ function sharedManifestMatches(
   );
 }
 
-function restoreSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: SomaRuntime): boolean {
+function sharedCacheDbEntryName(target: KbTarget): string {
+  return `${safeDirName(lexcatIndexName(target))}.db`;
+}
+
+function restoreSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: LexcatRuntime): boolean {
   if (!fetchSharedCacheRef(target)) return false;
   const manifest = parseSharedIndexManifest(readSharedCacheBlob(target, sharedCacheManifestPath(target), 1024 * 1024));
   if (!sharedManifestMatches(manifest, target, staged, runtime)) return false;
@@ -1573,21 +1393,17 @@ function restoreSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: Som
     mkdirSync(extractRoot, { recursive: true });
     const listed = run("tar", ["-tzf", archivePath], { timeout: 120_000 });
     if (listed.status !== 0) return false;
-    const indexName = safeDirName(somaIndexName(target));
+    const dbEntry = sharedCacheDbEntryName(target);
     const entries = listed.stdout.split(/\r?\n/).filter(Boolean).map((entry) => entry.replace(/^\.\//, ""));
-    if (
-      entries.length === 0 ||
-      entries.some((entry) => entry.includes("..") || (entry !== indexName && !entry.startsWith(`${indexName}/`)))
-    ) return false;
+    if (entries.length !== 1 || entries[0] !== dbEntry) return false;
     const extracted = run("tar", ["-xzf", archivePath, "-C", extractRoot], { timeout: 120_000 });
     if (extracted.status !== 0) return false;
-    const restoredDir = join(extractRoot, indexName);
-    const restoredDb = join(restoredDir, "index.db");
+    const restoredDb = join(extractRoot, dbEntry);
     if (!isRegularFile(restoredDb) || sha256File(restoredDb) !== manifest.index_db_sha256) return false;
-    const indexDir = somaNativeIndexDir(target);
-    mkdirSync(dirname(indexDir), { recursive: true });
-    rmSync(indexDir, { recursive: true, force: true });
-    renameSync(restoredDir, indexDir);
+    const indexDb = lexcatIndexDbPath(target);
+    mkdirSync(dirname(indexDb), { recursive: true });
+    rmSync(indexDb, { force: true });
+    renameSync(restoredDb, indexDb);
     writeLocalIndexMetadata(target, staged, runtime);
     return true;
   } finally {
@@ -1685,19 +1501,18 @@ function pushSharedCacheBranch(target: KbTarget, archivePath: string, manifest: 
   return false;
 }
 
-function publishSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: SomaRuntime): boolean {
+function publishSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: LexcatRuntime): boolean {
   if (!wikiContentIsPublished(target)) return false;
   if (fetchSharedCacheRef(target)) {
     const existing = parseSharedIndexManifest(readSharedCacheBlob(target, sharedCacheManifestPath(target), 1024 * 1024));
     if (sharedManifestMatches(existing, target, staged, runtime)) return true;
   }
-  const indexDir = somaNativeIndexDir(target);
-  const indexDb = join(indexDir, "index.db");
+  const indexDb = lexcatIndexDbPath(target);
   if (!isRegularFile(indexDb)) return false;
   const temporaryRoot = mkdtempSync(join(indexStoreDir(target.name), ".shared-archive-"));
   try {
     const archivePath = join(temporaryRoot, "index.tar.gz");
-    const archived = run("tar", ["-czf", archivePath, "-C", dirname(indexDir), basename(indexDir)], { timeout: 300_000 });
+    const archived = run("tar", ["-czf", archivePath, "-C", dirname(indexDb), sharedCacheDbEntryName(target)], { timeout: 300_000 });
     if (archived.status !== 0 || !isRegularFile(archivePath)) return false;
     const archiveBytes = statSync(archivePath).size;
     if (archiveBytes > MAX_SHARED_CACHE_ARCHIVE_BYTES) {
@@ -1706,7 +1521,7 @@ function publishSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: Som
     }
     const manifest: SharedIndexManifest = {
       schema_version: SHARED_CACHE_SCHEMA,
-      index_name: somaIndexName(target),
+      index_name: lexcatIndexName(target),
       source_digest: staged.sourceDigest,
       index_config: INDEX_CONFIG_VERSION,
       runtime_compatibility: runtimeCompatibility(runtime),
@@ -1727,10 +1542,10 @@ function publishSharedIndex(target: KbTarget, staged: StagedCorpus, runtime: Som
   }
 }
 
-async function runSomaIndex(target: KbTarget, force = false, quiet = false): Promise<void> {
-  const runtime = resolveSomaRuntime();
+async function runLexcatIndex(target: KbTarget, force = false, quiet = false): Promise<void> {
+  const runtime = resolveLexcatRuntime();
   const staged = stageCorpus(target, force);
-  const indexDir = somaNativeIndexDir(target);
+  const indexDb = lexcatIndexDbPath(target);
   const sharedCacheEligible = !target.indexTags?.length;
 
   if (staged.items === 0) {
@@ -1748,53 +1563,144 @@ async function runSomaIndex(target: KbTarget, force = false, quiet = false): Pro
     return;
   }
 
-  if (force) rmSync(indexDir, { recursive: true, force: true });
-  mkdirSync(somaOutputRoot(target), { recursive: true });
-  runSomaCommand(
-    runtime,
-    [
-      "index",
-      "build",
-      relative(indexStoreDir(target.name), staged.corpusDir).split(sep).join("/"),
-      "--name",
-      somaIndexName(target),
-      "--title-field",
-      "title",
-      "--include-types",
-      "md",
-      "--metadata",
-      "wikikb_path",
-      "--incremental",
-      ...(force ? ["--no-incremental"] : []),
-    ],
-    target,
-    600_000,
-  );
-  if (!isRegularFile(join(indexDir, "index.db"))) {
-    throw new Error(`SOMA completed without creating an index for ${targetLabel(target)}.`);
+  // LexCAT reconciles an existing index in place, which is materially cheaper
+  // than a rebuild because unchanged chunks keep their cached token streams.
+  // Both paths write to a scratch file that is swapped in only once the result
+  // is verified, so a failed or interrupted run leaves the previous index
+  // intact instead of truncating or half-reconciling it. `--force` is the
+  // repair path, so it always rebuilds rather than trusting the existing index.
+  mkdirSync(lexcatOutputRoot(target), { recursive: true });
+  const pendingDb = `${indexDb}.building`;
+  const incremental = !force && indexIsSyncable(target, runtime);
+  try {
+    rmSync(pendingDb, { force: true });
+    if (incremental) copyFileSync(indexDb, pendingDb);
+    const output = runLexcatCommand(
+      runtime,
+      incremental
+        ? ["--index", pendingDb, "sync", staged.corpusDir, "--json"]
+        : ["--index", pendingDb, "build", staged.corpusDir, "--json"],
+      target,
+      600_000,
+    );
+    if (!isRegularFile(pendingDb)) {
+      throw new Error(`LexCAT completed without creating an index for ${targetLabel(target)}.`);
+    }
+    assertIndexIsQueryable(output.stdout, target);
+    rmSync(indexDb, { force: true });
+    renameSync(pendingDb, indexDb);
+  } finally {
+    rmSync(pendingDb, { force: true });
   }
 
   writeLocalIndexMetadata(target, staged, runtime);
   if (sharedCacheEligible) publishSharedIndex(target, staged, runtime);
-  if (!quiet) console.log(`Index: ${staged.items} items/chunks (SOMA ${runtime.version}${target.namespace.length ? `, namespace ${namespaceKey(target)}` : ""})`);
+  if (!quiet) {
+    console.log(`Index: ${staged.items} items/chunks (LexCAT ${runtime.version}${incremental ? ", incremental" : ""}${target.namespace.length ? `, namespace ${namespaceKey(target)}` : ""})`);
+  }
 }
 
-function runSomaCommand(runtime: SomaRuntime, args: string[], target: KbTarget, timeout: number): string {
-  const outputRoot = somaOutputRoot(target);
-  const implementationOutputKey = ["SO", "MA_OUTPUT_ROOT"].join("");
+// `lexcat sync` re-bakes under the config already recorded in the index, so it
+// may only reconcile an index this build contract produced with this runtime.
+// Anything else has to be rebuilt so the new config actually takes effect.
+function indexIsSyncable(target: KbTarget, runtime: LexcatRuntime): boolean {
+  if (!isRegularFile(lexcatIndexDbPath(target))) return false;
+  const metadata = readLocalIndexMetadata(target);
+  return Boolean(
+    metadata &&
+    metadata.index_name === lexcatIndexName(target) &&
+    metadata.index_config === INDEX_CONFIG_VERSION &&
+    metadata.runtime_compatibility === runtimeCompatibility(runtime),
+  );
+}
+
+function runLexcatCommand(runtime: LexcatRuntime, args: string[], target: KbTarget, timeout: number): { stdout: string; stderr: string } {
   const result = spawnSync(runtime.bin, args, {
     cwd: indexStoreDir(target.name),
-    env: { ...process.env, WIKIKB_SOMA_OUTPUT_ROOT: outputRoot, [implementationOutputKey]: outputRoot },
+    env: { ...process.env },
     encoding: "utf8",
     timeout,
     maxBuffer: 32 * 1024 * 1024,
   });
-  if (result.error) throw new Error(`SOMA failed to start: ${result.error.message}`);
+  if (result.error) throw new Error(`LexCAT failed to start: ${result.error.message}`);
   if (result.status !== 0) {
     const details = redactSecrets(result.stderr || result.stdout || "").trim();
-    throw new Error(`SOMA exited ${result.status}${details ? `:\n${details}` : ""}`);
+    throw new Error(`LexCAT exited ${result.status}${details ? `:\n${details}` : ""}`);
   }
-  return result.stdout || "";
+  return { stdout: result.stdout || "", stderr: result.stderr || "" };
+}
+
+function assertIndexIsQueryable(output: string, target: KbTarget): void {
+  // `build --json` and `sync --json` both report the resulting chunk and term
+  // counts. Neither an empty corpus nor a collapsed vocabulary is an error to
+  // LexCAT -- it writes a valid index and every later query returns no hits and
+  // exits 0 -- so both counts are checked here rather than letting retrieval
+  // fail silently. A chunk count alone is not enough: an index can hold every
+  // chunk and still be unsearchable if no terms survived the analyzer.
+  let report: { chunks?: unknown; terms?: unknown };
+  try {
+    report = JSON.parse(output) as { chunks?: unknown; terms?: unknown };
+  } catch (error) {
+    throw new Error(
+      `Could not parse the LexCAT index report for ${targetLabel(target)}: ` +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  }
+  if (typeof report.chunks !== "number" || typeof report.terms !== "number") {
+    throw new Error(`LexCAT did not report chunk and term counts for ${targetLabel(target)}.`);
+  }
+  if (report.chunks <= 0) {
+    throw new Error(`LexCAT indexed no chunks for ${targetLabel(target)}.`);
+  }
+  if (report.terms <= 0) {
+    throw new Error(`LexCAT indexed ${report.chunks} chunk(s) but no terms for ${targetLabel(target)}, so it cannot be searched.`);
+  }
+}
+
+function parseLexcatHits(stdout: string): LexcatHit[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`Could not parse LexCAT query output: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const rawHits = (parsed as { hits?: unknown })?.hits;
+  if (!Array.isArray(rawHits)) {
+    throw new Error("LexCAT query output did not contain a hit list.");
+  }
+
+  const hits: LexcatHit[] = [];
+  for (const raw of rawHits) {
+    if (!raw || typeof raw !== "object") continue;
+    const hit = raw as { chunk_id?: unknown; doc_id?: unknown; score?: unknown; text?: unknown; payload?: unknown };
+    const chunkId = typeof hit.chunk_id === "string" ? hit.chunk_id : "";
+    if (!chunkId) continue;
+    // A chunk id embeds an unescaped chunk suffix for split documents, so the
+    // owning doc id is taken from its own field rather than parsed out of the id.
+    const docId = typeof hit.doc_id === "string" && hit.doc_id ? hit.doc_id : chunkId;
+    const score = typeof hit.score === "number" ? hit.score : Number.NaN;
+    hits.push({
+      chunkId,
+      docId,
+      score,
+      text: typeof hit.text === "string" ? hit.text : "",
+      fields: readPayloadFields(hit.payload),
+    });
+  }
+  return hits;
+}
+
+// Frontmatter staged with the corpus comes back on each hit's payload. Only
+// scalar fields are meaningful to WikiKB, so anything else is ignored.
+function readPayloadFields(payload: unknown): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const raw = (payload as { fields?: unknown })?.fields;
+  if (!raw || typeof raw !== "object") return fields;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "string") fields[key] = value;
+    else if (typeof value === "number" || typeof value === "boolean") fields[key] = String(value);
+  }
+  return fields;
 }
 
 function recoverWikiPath(sourceFile: string): string {
@@ -1809,67 +1715,30 @@ function recoverWikiPath(sourceFile: string): string {
   return normalized;
 }
 
-async function runSomaQuery(target: KbTarget, query: string): Promise<SearchHit[]> {
-  const runtime = resolveSomaRuntime();
-  const preset = ensureSomaModel(runtime);
-  const relativeIndexDir = relative(indexStoreDir(target.name), somaNativeIndexDir(target)).split(sep).join("/");
-  const stdout = runSomaCommand(
+async function runLexcatQuery(target: KbTarget, query: string): Promise<SearchHit[]> {
+  const runtime = resolveLexcatRuntime();
+  const indexDb = lexcatIndexDbPath(target);
+  // `--json` carries each hit's text and staged frontmatter, so retrieval never
+  // has to bind against LexCAT's on-disk schema to recover a result.
+  const output = runLexcatCommand(
     runtime,
-    [
-      "query",
-      "--index",
-      relativeIndexDir,
-      "--max-tokens",
-      "4000",
-      "--metadata",
-      "wikikb_path",
-      ...(preset ? ["--preset", preset] : []),
-      "--output",
-      "-",
-      query,
-    ],
+    ["--index", indexDb, "query", query, "--n", String(LEXCAT_QUERY_HITS), "--json"],
     target,
     30_000,
   );
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`SOMA returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("SOMA returned an invalid query payload");
-  return somaPayloadToHits(payload as SomaQueryPayload);
+  return lexcatHitsToSearchHits(parseLexcatHits(output.stdout));
 }
 
-function somaPayloadToHits(payload: SomaQueryPayload): SearchHit[] {
-  const ranked: Array<{ chunk: SomaQueryChunk; community?: number | string }> = [];
-  for (const communities of [payload.communities, payload.topics]) {
-    if (!Array.isArray(communities)) continue;
-    for (const community of communities) {
-      if (!community || !Array.isArray(community.chunks)) continue;
-      for (const chunk of community.chunks) {
-        if (chunk && typeof chunk === "object") ranked.push({ chunk, community: community.community_id ?? community.topic_id });
-      }
-    }
-  }
-  if (Array.isArray(payload.chunks)) {
-    for (const chunk of payload.chunks) {
-      if (chunk && typeof chunk === "object") ranked.push({ chunk });
-    }
-  }
-
+function lexcatHitsToSearchHits(ranked: LexcatHit[]): SearchHit[] {
   const hits: SearchHit[] = [];
   for (const [rank, entry] of ranked.entries()) {
-    const { chunk, community } = entry;
-    const path = recoverWikiPath(chunk.wikikb_path || chunk.source_file || chunk.doc_id || `chunk-${chunk.chunk_id ?? rank}`);
-    const text = typeof chunk.text === "string" ? chunk.text : "";
-    const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+    const heading = entry.text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+    const path = entry.fields[CORPUS_PATH_FIELD] || recoverWikiPath(entry.docId);
     hits.push({
-      title: chunk.title || heading || basename(path, ".md").replace(/[-_]/g, " "),
+      title: entry.fields[CORPUS_TITLE_FIELD] || heading || basename(path, ".md").replace(/[-_]/g, " "),
       path,
-      text,
-      score: typeof chunk.score === "number" && Number.isFinite(chunk.score) ? chunk.score : 1 / (rank + 1),
-      community,
+      text: entry.text,
+      score: Number.isFinite(entry.score) ? entry.score : 1 / (rank + 1),
     });
   }
 
@@ -1889,7 +1758,7 @@ async function retrievalHits(target: KbTarget, query: string, tags: Set<string>)
   const scopedTarget: KbTarget = tags.size > 0
     ? { ...target, indexTags: [...tags].sort() }
     : target;
-  await runSomaIndex(scopedTarget, false, true);
+  await runLexcatIndex(scopedTarget, false, true);
   const filters = [
     target.namespace.length ? `namespace ${namespaceKey(target)}` : "",
     tags.size ? `tags ${[...tags].sort().map((tag) => `#${tag}`).join(", ")}` : "",
@@ -1898,8 +1767,8 @@ async function retrievalHits(target: KbTarget, query: string, tags: Set<string>)
   if (filters.length > 0) {
     console.error(`Searching scoped index for ${filters.join(" and ")}${indexedPages === undefined ? "" : ` (${indexedPages} pages indexed)`}`);
   }
-  const hits = await runSomaQuery(scopedTarget, query);
-  if (hits.length === 0) throw new Error(`SOMA returned no chunks for ${targetLabel(target)}.`);
+  const hits = await runLexcatQuery(scopedTarget, query);
+  if (hits.length === 0) throw new Error(`LexCAT returned no chunks for ${targetLabel(target)}.`);
   return { hits, diagnostics: [] };
 }
 
@@ -2592,7 +2461,7 @@ async function cmdIngestIssues(target: KbTarget, args: string[]): Promise<void> 
     name: target.name,
     namespace: options.namespace,
   };
-  if (options.push || indexReady(indexTarget)) await runSomaIndex(indexTarget, false, true);
+  if (options.push || indexReady(indexTarget)) await runLexcatIndex(indexTarget, false, true);
   if (options.push) requirePublishedWiki(wd);
 }
 
@@ -2939,7 +2808,7 @@ async function cmdSync(target: KbTarget): Promise<void> {
   const pages = filterPagesByNamespace(loadPages(wd), target);
   const namespace = target.namespace.length ? ` (${namespaceKey(target)})` : "";
   console.log(`Synced ${pages.length} pages${namespace} to ${wd}`);
-  if (indexReady(target)) await runSomaIndex(target, false, true);
+  if (indexReady(target)) await runLexcatIndex(target, false, true);
 }
 
 function cmdStatus(target: KbTarget): void {
@@ -2964,7 +2833,7 @@ function cmdStatus(target: KbTarget): void {
   }
   console.log(
     indexReady(target)
-      ? `Index:      ${indexState.index_items ?? "?"} items/chunks (SOMA)`
+      ? `Index:      ${indexState.index_items ?? "?"} items/chunks (LexCAT)`
       : `Index:      not built (run: wkb ${targetLabel(target)} index)`,
   );
 }
@@ -3046,7 +2915,7 @@ async function cmdIngest(target: KbTarget, args: string[]): Promise<void> {
   console.log(`  Wrote ${sourceRel}`);
   if (push) pushWiki(wd, sourceRel, [sourceRel]);
   else console.log("  Left uncommitted in the local wiki cache (--no-push)");
-  if (push || indexReady(target)) await runSomaIndex(target, false, true);
+  if (push || indexReady(target)) await runLexcatIndex(target, false, true);
   if (push) requirePublishedWiki(wd);
 }
 
@@ -3259,7 +3128,7 @@ function parseQueryArgs(
 function printHelp(): void {
   console.log(`wkb - WikiKB command-line tool
 
-Requires the vendored SOMA runtime for all search and query retrieval.
+Requires the vendored LexCAT runtime for all search and query retrieval.
 
 Usage:
   wkb add <name> <owner/repo>
@@ -3285,7 +3154,7 @@ Indexes sync through the ${SHARED_CACHE_BRANCH} wiki branch. A requested wiki pu
 Environment:
   WIKIKB_GITHUB_TOKEN   GitHub token
   WIKIKB_CACHE_DIR      Local state directory (default: ~/.wikikb)
-  WIKIKB_SOMA_BIN        Controlled runtime override
+  WIKIKB_LEXCAT_BIN      Controlled runtime override
   WIKIKB_AI_PROVIDER    copilot, openai, or command
   WIKIKB_AI_MODEL       Required generation model
   WIKIKB_COPILOT_TOKEN  Explicit Copilot credential (defaults to gh auth token)
@@ -3342,7 +3211,7 @@ async function dispatch(argv: string[]): Promise<void> {
       requireNoArgs("status", args);
       return cmdStatus(target);
     case "index":
-      return runSomaIndex(target, parseIndexArgs(args));
+      return runLexcatIndex(target, parseIndexArgs(args));
     case "search":
       return cmdSearch(target, args);
     case "query":

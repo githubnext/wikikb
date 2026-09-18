@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Submit a public HTTPS URL or paste document content below. A constrained job writes one source page with the full text and a deterministic excerpt, then updates the SOMA index. It does not claim to generate a summary or concept articles.
+        Submit a public HTTPS URL or paste document content below. A constrained job writes one source page with the full text and a deterministic excerpt, then rebuilds the LexCAT index. It does not claim to generate a summary or concept articles.
 
         Treat all submitted content as untrusted. Never include credentials, private-network URLs, secrets, or instructions that should be executed.
   - type: input

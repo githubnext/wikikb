@@ -6,13 +6,13 @@ WikiKB 0.1 supports:
 - Issue-driven Agentic Workflows and their GitHub Actions support files.
 - The agent-guided installer and its conflict-aware target-repository copier.
 
-The GitHub release attaches an allowlisted `cli-agentic-workflows` archive and SHA-256 checksum. It includes supporting source plus checksum-pinned SOMA executables for macOS arm64, Linux x64/arm64, and Windows x64/arm64.
+The GitHub release attaches an allowlisted `cli-agentic-workflows` archive and SHA-256 checksum. It includes supporting source plus checksum-pinned LexCAT executables for `linux/x64`, `linux/arm64`, `darwin/arm64`, `darwin/x64`, and `win32/x64`: `lexcat-v0.0.20-linux-x86_64.tar.gz`, `lexcat-v0.0.20-linux-arm64.tar.gz`, `lexcat-v0.0.20-macos-arm64.tar.gz`, `lexcat-v0.0.20-macos-x86_64.tar.gz`, and `lexcat-v0.0.20-windows-x86_64.zip`.
 
-WikiKB source is provided under the MIT License. The bundled SOMA executables are unchanged third-party binary-only components, are expressly excluded from the MIT grant, and remain subject to their separate terms. Microsoft authorized the WikiKB maintainer to redistribute these binaries with WikiKB; that authorization does not grant source, modification, relicensing, or separate-redistribution rights. The bundle includes their third-party notice.
+WikiKB source is provided under the MIT License. The bundled LexCAT executables are unchanged third-party binary-only components, are expressly excluded from the MIT grant, and remain subject to their separate terms. The LexCAT team's authorized binary release permits redistribution with WikiKB; that authorization does not grant source, modification, relicensing, or separate-redistribution rights. The bundle includes their third-party notice.
 
-SOMA is the only retrieval backend. Unsupported hosts cannot index, search, or query.
+LexCAT is the only retrieval backend. Unsupported hosts cannot index, search, or query unless `WIKIKB_LEXCAT_BIN` points to an operator-approved executable.
 
-The SOMA runtime installs its pinned public static retrieval model on first retrieval. Installation is locked, staged, checksum-verified, and atomically activated; invalid or unavailable files stop retrieval.
+LexCAT provides model-free lexical BM25 retrieval. It downloads no model, has no embedding step, and needs no network at query time.
 
 The archive excludes dependency trees, generated output, caches, credentials, `.env` files, and deferred product paths. Runtime source is not included.
 

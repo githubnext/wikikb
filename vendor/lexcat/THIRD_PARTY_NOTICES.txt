@@ -1,0 +1,16 @@
+Third-Party Notice: LexCAT
+==========================
+
+WikiKB includes unchanged binary archives of the LexCAT 0.0.20 lexical
+retrieval runtime in this directory. The LexCAT executables
+are not licensed under WikiKB's MIT License.
+
+The LexCAT executables remain subject to their copyright holder's separate
+terms. The redistribution authorization above does not provide LexCAT source
+code or grant permission to modify, sublicense, or relicense the executables.
+Contact the WikiKB maintainer before redistributing LexCAT separately from an
+unchanged WikiKB distribution.
+
+LexCAT is model-free. No retrieval model is downloaded, installed, or
+redistributed with these archives, and the runtime never calls an embedding
+service.

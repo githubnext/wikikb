@@ -66,7 +66,7 @@ const mappings = [
   ["tools/wikikb-local/assets", ".github/wikikb/tools/wikikb-local/assets"],
   ["tools/wikikb-local/src", ".github/wikikb/tools/wikikb-local/src"],
   ["tools/wikikb-local/tsconfig.json", ".github/wikikb/tools/wikikb-local/tsconfig.json"],
-  ["vendor/soma", ".github/wikikb/vendor/soma"],
+  ["vendor/lexcat", ".github/wikikb/vendor/lexcat"],
   ["LICENSE", ".github/wikikb/LICENSE"],
 ];
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Install wkb to ~/.local/bin. Search, query, and indexing require either a
-# checksum-pinned vendored SOMA archive or an explicit executable override.
+# checksum-pinned vendored LexCAT archive or an explicit executable override.
 #
 # Usage:
 #   bash tools/wikikb-local/install.sh
@@ -10,25 +10,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_DIR="${WKB_INSTALL_DIR:-$HOME/.local/bin}"
-SOMA_ARCHIVE=""
+LEXCAT_ARCHIVE=""
 case "$(uname -s):$(uname -m)" in
-    Linux:x86_64|Linux:amd64) SOMA_ARCHIVE="$REPO_ROOT/vendor/soma/soma-v0.3.0-linux-x86_64.tar.gz" ;;
-    Linux:arm64|Linux:aarch64) SOMA_ARCHIVE="$REPO_ROOT/vendor/soma/soma-v0.3.0-linux-arm64.tar.gz" ;;
-    Darwin:arm64|Darwin:aarch64) SOMA_ARCHIVE="$REPO_ROOT/vendor/soma/soma-v0.3.0-macos-arm64.tar.gz" ;;
-    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) SOMA_ARCHIVE="$REPO_ROOT/vendor/soma/soma-v0.3.0-windows-x86_64.zip" ;;
-    MINGW*:arm64|MINGW*:aarch64|MSYS*:arm64|MSYS*:aarch64|CYGWIN*:arm64|CYGWIN*:aarch64) SOMA_ARCHIVE="$REPO_ROOT/vendor/soma/soma-v0.3.0-windows-arm64.zip" ;;
+    Linux:x86_64|Linux:amd64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.20-linux-x86_64.tar.gz" ;;
+    Linux:aarch64|Linux:arm64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.20-linux-arm64.tar.gz" ;;
+    Darwin:arm64|Darwin:aarch64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.20-macos-arm64.tar.gz" ;;
+    Darwin:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.20-macos-x86_64.tar.gz" ;;
+    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) LEXCAT_ARCHIVE="$REPO_ROOT/vendor/lexcat/lexcat-v0.0.20-windows-x86_64.zip" ;;
 esac
 
 echo "Installing wkb..."
 
-if [ -n "${WIKIKB_SOMA_BIN:-}" ]; then
-    if [ ! -x "$WIKIKB_SOMA_BIN" ]; then
-        echo "ERROR: WIKIKB_SOMA_BIN is not executable: $WIKIKB_SOMA_BIN" >&2
+if [ -n "${WIKIKB_LEXCAT_BIN:-}" ]; then
+    if [ ! -x "$WIKIKB_LEXCAT_BIN" ]; then
+        echo "ERROR: WIKIKB_LEXCAT_BIN is not executable: $WIKIKB_LEXCAT_BIN" >&2
         exit 1
     fi
-elif [ -z "$SOMA_ARCHIVE" ] || [ ! -f "$SOMA_ARCHIVE" ]; then
-    echo "ERROR: No vendored SOMA 0.3.0 binary for $(uname -s)/$(uname -m)." >&2
-    echo "Set WIKIKB_SOMA_BIN to an approved SOMA executable." >&2
+elif [ -z "$LEXCAT_ARCHIVE" ] || [ ! -f "$LEXCAT_ARCHIVE" ]; then
+    echo "ERROR: No vendored LexCAT 0.0.20 binary for $(uname -s)/$(uname -m)." >&2
+    echo "Set WIKIKB_LEXCAT_BIN to an approved LexCAT executable." >&2
     exit 1
 fi
 
@@ -36,7 +36,7 @@ if ! command -v node &>/dev/null; then
     echo "ERROR: Node.js 22+ required."
     exit 1
 fi
-node -e 'const major = Number(process.versions.node.split(".")[0]); process.exit(major >= 22 ? 0 : 1)' || {
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' || {
     echo "ERROR: Node.js 22+ required. Found: $(node --version)"
     exit 1
 }
@@ -58,10 +58,10 @@ exec "$SCRIPT_DIR/wkb" "\$@"
 WRAPPER_EOF
 chmod +x "$WRAPPER"
 
-if [ -n "${WIKIKB_SOMA_BIN:-}" ]; then
-    echo "  SOMA: executable override $WIKIKB_SOMA_BIN"
-elif [ -n "$SOMA_ARCHIVE" ] && [ -f "$SOMA_ARCHIVE" ]; then
-    echo "  SOMA: vendored 0.3.0 binary available (extracted on first index)"
+if [ -n "${WIKIKB_LEXCAT_BIN:-}" ]; then
+    echo "  LexCAT: executable override $WIKIKB_LEXCAT_BIN"
+elif [ -n "$LEXCAT_ARCHIVE" ] && [ -f "$LEXCAT_ARCHIVE" ]; then
+    echo "  LexCAT: vendored 0.0.20 binary available (extracted on first index)"
 fi
 
 echo ""

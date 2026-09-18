@@ -69,8 +69,8 @@ function startRun(args, cacheDir, extraEnv = {}) {
 test("help shows TypeScript CLI usage", () => {
   const result = run(["--help"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /Requires the vendored SOMA runtime/);
-  assert.match(result.stdout, /WIKIKB_SOMA_BIN/);
+  assert.match(result.stdout, /Requires the vendored LexCAT runtime/);
+  assert.match(result.stdout, /WIKIKB_LEXCAT_BIN/);
   assert.ok(result.stdout.trim().split(/\r?\n/).length < 45, "help output should stay concise");
   assert.doesNotMatch(result.stdout, /WIKIKB_LLM_(?:TOKEN|MODEL|API)/);
 });
@@ -295,28 +295,28 @@ test("commands reject unexpected and undocumented arguments", () => {
   }
 });
 
-test("index fails clearly when a configured SOMA executable is unavailable", () => {
+test("index fails clearly when a configured LexCAT executable is unavailable", () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-test-"));
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals.\n");
   writeState(cacheDir, "test-kb");
   const result = run(["test-kb", "index"], cacheDir, {
-    WIKIKB_SOMA_BIN: join(cacheDir, "missing-soma"),
+    WIKIKB_LEXCAT_BIN: join(cacheDir, "missing-lexcat"),
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Configured SOMA executable does not exist/);
+  assert.match(result.stderr, /Configured LexCAT executable does not exist/);
 });
 
 test("retrieval commands build a missing index once and reuse it", () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-test-"));
-  const commandLog = join(cacheDir, "soma-commands.jsonl");
+  const commandLog = join(cacheDir, "lexcat-commands.jsonl");
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals.\n");
   writeWiki(cacheDir, "test-kb", "sources/climate.md", "# Climate\n\nRising sea levels affect coastal cities.\n");
   writeState(cacheDir, "test-kb");
   const env = {
-    WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheDir),
-    WIKIKB_FAKE_SOMA_LOG: commandLog,
+    WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheDir),
+    WIKIKB_FAKE_LEXCAT_LOG: commandLog,
   };
 
   for (const command of ["search", "query", "summarize", "rewrite", "extract", "timeline"]) {
@@ -326,8 +326,8 @@ test("retrieval commands build a missing index once and reuse it", () => {
     assert.match(result.stdout, /Fox|Relevant context/);
   }
   const commands = readFileSync(commandLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(commands.filter(([command]) => command === "index").length, 1);
-  assert.equal(commands.filter(([command]) => command === "query").length, 6);
+  assert.equal(commands.filter((args) => args.includes("build")).length, 1);
+  assert.equal(commands.filter((args) => args.includes("query")).length, 6);
 });
 
 test("staged corpus filenames cannot collide when wiki paths flatten alike", () => {
@@ -336,32 +336,54 @@ test("staged corpus filenames cannot collide when wiki paths flatten alike", () 
   writeWiki(cacheDir, "test-kb", "sources/a/b.md", "# Nested\n\nNested path marker.\n");
   writeWiki(cacheDir, "test-kb", "sources/a_b.md", "# Flat\n\nFlat path marker.\n");
   writeState(cacheDir, "test-kb");
-  indexWithFakeSoma(cacheDir);
+  indexWithFakeLexcat(cacheDir);
 
-  const corpusDir = join(cacheDir, "test-kb", "index-store", "soma-corpus", "owner_demo-repo");
-  const manifest = JSON.parse(readFileSync(join(corpusDir, ".wikikb-corpus.json"), "utf8"));
-  const nested = manifest.documents["sources/a/b.md"].path;
-  const flat = manifest.documents["sources/a_b.md"].path;
-  assert.notEqual(nested, flat);
-  assert.match(readFileSync(join(corpusDir, nested), "utf8"), /Nested path marker/);
-  assert.match(readFileSync(join(corpusDir, flat), "utf8"), /Flat path marker/);
-  assert.equal(readdirSync(corpusDir).filter((entry) => entry.endsWith(".md")).length, 2);
+  const corpusDir = join(cacheDir, "test-kb", "index-store", "lexcat-corpus", "owner_demo-repo");
+  const staged = readdirSync(corpusDir).filter((entry) => entry.endsWith(".md"));
+  assert.equal(staged.length, 2);
+  const byWikiPath = new Map(staged.map((entry) => {
+    const body = readFileSync(join(corpusDir, entry), "utf8");
+    return [body.match(/^wikikb_path: "(.+)"$/m)[1], body];
+  }));
+  assert.match(byWikiPath.get("sources/a/b.md"), /Nested path marker/);
+  assert.match(byWikiPath.get("sources/a_b.md"), /Flat path marker/);
+  // LexCAT indexes every file it walks, so the build root holds documents only.
+  assert.deepEqual(readdirSync(corpusDir).filter((entry) => !entry.endsWith(".md")), []);
 });
 
-test("index and search use the SOMA runtime contract", { skip: process.platform === "win32" }, () => {
+test("staged corpus carries wiki identity as frontmatter LexCAT hands back on every hit", () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-test-"));
-  const somaBin = writeFakeSomaCli(cacheDir);
-  const commandLog = join(cacheDir, "soma-commands.jsonl");
+  assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
+  writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals.\n");
+  writeState(cacheDir, "test-kb");
+  indexWithFakeLexcat(cacheDir);
+
+  const corpusRoot = join(cacheDir, "test-kb", "index-store", "lexcat-corpus");
+  const corpusDir = join(corpusRoot, "owner_demo-repo");
+  const staged = readdirSync(corpusDir).filter((entry) => entry.endsWith(".md"));
+  assert.equal(staged.length, 1);
+  assert.equal(
+    readFileSync(join(corpusDir, staged[0]), "utf8"),
+    '---\ntitle: "Fox"\nwikikb_path: "sources/fox.md"\n---\n\n# Fox\n\nFoxes are cunning animals.\n',
+  );
+  // Identity rides the document itself now, so no side manifest is written.
+  assert.deepEqual(readdirSync(corpusRoot).filter((entry) => entry.endsWith(".corpus.json")), []);
+});
+
+test("index and search use the LexCAT runtime contract", { skip: process.platform === "win32" }, () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-test-"));
+  const lexcatBin = writeFakeLexcatCli(cacheDir);
+  const commandLog = join(cacheDir, "lexcat-commands.jsonl");
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals.\n");
   writeWiki(cacheDir, "test-kb", "sources/climate.md", "# Climate\n\nRising sea levels affect coastal cities.\n");
   writeState(cacheDir, "test-kb");
 
-  const env = { WIKIKB_SOMA_BIN: somaBin, WIKIKB_FAKE_SOMA_LOG: commandLog };
+  const env = { WIKIKB_LEXCAT_BIN: lexcatBin, WIKIKB_FAKE_LEXCAT_LOG: commandLog };
   const index = run(["test-kb", "index"], cacheDir, env);
   assert.equal(index.status, 0, index.stderr);
-  assert.match(index.stdout, /SOMA override/);
-  assert.ok(existsSync(join(cacheDir, "test-kb", "index-store", "soma-output", "indexes")));
+  assert.match(index.stdout, /LexCAT override/);
+  assert.ok(existsSync(join(cacheDir, "test-kb", "index-store", "lexcat-output", "owner_demo-repo.db")));
 
   const search = run(["test-kb", "search", "fox", "--top", "1"], cacheDir, env);
   assert.equal(search.status, 0, search.stderr);
@@ -371,46 +393,120 @@ test("index and search use the SOMA runtime contract", { skip: process.platform 
   const forced = run(["test-kb", "index", "--force"], cacheDir, env);
   assert.equal(forced.status, 0, forced.stderr);
   const commands = readFileSync(commandLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.ok(commands.some((args) => args[0] === "index" && args.includes("--incremental") && !args.includes("--no-incremental")));
-  assert.ok(commands.some((args) => args[0] === "index" && args.includes("--incremental") && args.includes("--no-incremental")));
-  assert.ok(commands.some((args) => args[0] === "query" && args.includes("--output") && args.includes("-")));
+  const builds = commands.filter((args) => args.includes("build"));
+  assert.ok(builds.length >= 2);
+  // `--force` is the repair path, so it rebuilds rather than reconciling.
+  assert.equal(commands.filter((args) => args.includes("sync")).length, 0);
+  // Every build writes to a scratch file that is swapped in once verified.
+  assert.ok(builds.every((args) => args[0] === "--index" && args[1].endsWith(".db.building")));
+  // Indexing reads its chunk and term counts out of the machine-readable report.
+  assert.ok(builds.every((args) => args.includes("--json")));
+  // Retrieval reads results out of the machine-readable query document.
+  assert.ok(commands.some((args) => args.includes("query") && args.includes("--n") && args.includes("--json")));
 
-  const failedQuery = run(["test-kb", "search", "cunning fox", "--top", "1"], cacheDir, {
+  const unparseable = run(["test-kb", "search", "cunning fox", "--top", "1"], cacheDir, {
     ...env,
-    WIKIKB_FAKE_SOMA_BAD_QUERY: "1",
+    WIKIKB_FAKE_LEXCAT_UNPARSEABLE: "1",
   });
-  assert.notEqual(failedQuery.status, 0);
-  assert.equal(failedQuery.stdout, "");
-  assert.match(failedQuery.stderr, /SOMA returned invalid JSON/);
+  assert.notEqual(unparseable.status, 0);
+  assert.equal(unparseable.stdout, "");
+  assert.match(unparseable.stderr, /Could not parse LexCAT query output/);
 
   const emptyQuery = run(["test-kb", "search", "cunning fox", "--top", "1"], cacheDir, {
     ...env,
-    WIKIKB_FAKE_SOMA_EMPTY_QUERY: "1",
+    WIKIKB_FAKE_LEXCAT_EMPTY_QUERY: "1",
   });
   assert.notEqual(emptyQuery.status, 0);
   assert.equal(emptyQuery.stdout, "");
-  assert.match(emptyQuery.stderr, /SOMA returned no chunks/);
+  assert.match(emptyQuery.stderr, /LexCAT returned no chunks/);
 
-  const emptyText = run(["test-kb", "search", "cunning fox", "--top", "1"], cacheDir, {
+  // A ranked hit carrying no text cannot be cited, so it is dropped rather
+  // than surfaced as an empty context block.
+  const unknownChunk = run(["test-kb", "search", "cunning fox", "--top", "1"], cacheDir, {
     ...env,
-    WIKIKB_FAKE_SOMA_EMPTY_TEXT: "1",
+    WIKIKB_FAKE_LEXCAT_UNKNOWN_CHUNK: "1",
   });
-  assert.notEqual(emptyText.status, 0);
-  assert.equal(emptyText.stdout, "");
-  assert.match(emptyText.stderr, /SOMA returned no chunks/);
+  assert.notEqual(unknownChunk.status, 0);
+  assert.equal(unknownChunk.stdout, "");
+  assert.match(unknownChunk.stderr, /LexCAT returned no chunks/);
 
   const missingIndex = run(["test-kb", "index", "--force"], cacheDir, {
     ...env,
-    WIKIKB_FAKE_SOMA_SKIP_INDEX: "1",
+    WIKIKB_FAKE_LEXCAT_SKIP_INDEX: "1",
   });
   assert.notEqual(missingIndex.status, 0);
   assert.match(missingIndex.stderr, /completed without creating an index/);
+
+  // An empty corpus builds and queries at exit 0 upstream, so WikiKB rejects it
+  // at build time instead of letting every later search return nothing.
+  const emptyIndex = run(["test-kb", "index", "--force"], cacheDir, {
+    ...env,
+    WIKIKB_FAKE_LEXCAT_EMPTY_INDEX: "1",
+  });
+  assert.notEqual(emptyIndex.status, 0);
+  assert.match(emptyIndex.stderr, /indexed no chunks/);
+
+  // Chunks can be indexed while the analyzer discards every term, which leaves a
+  // populated but permanently unsearchable index -- the chunk count alone would
+  // not catch it.
+  const noTerms = run(["test-kb", "index", "--force"], cacheDir, {
+    ...env,
+    WIKIKB_FAKE_LEXCAT_NO_TERMS: "1",
+  });
+  assert.notEqual(noTerms.status, 0);
+  assert.match(noTerms.stderr, /no terms/);
+
+  // A failed rebuild must leave the previous index queryable.
+  const afterFailure = run(["test-kb", "search", "fox", "--top", "1"], cacheDir, env);
+  assert.equal(afterFailure.status, 0, afterFailure.stderr);
+  assert.match(afterFailure.stdout, /Fox/);
 });
 
-test("vendored SOMA indexes a staged wiki corpus and queries with a verified model", {
-  skip: !((process.platform === "darwin" && process.arch === "arm64") || (process.platform === "linux" && ["arm64", "x64"].includes(process.arch))),
+test("a warm index is reconciled incrementally instead of rebuilt", { skip: process.platform === "win32" }, () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-test-"));
+  const commandLog = join(cacheDir, "lexcat-commands.jsonl");
+  assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
+  writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals.\n");
+  writeState(cacheDir, "test-kb");
+
+  const env = { WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheDir), WIKIKB_FAKE_LEXCAT_LOG: commandLog };
+  assert.equal(run(["test-kb", "index"], cacheDir, env).status, 0);
+  assert.deepEqual(lexcatCommands(commandLog), ["build"]);
+
+  writeWiki(cacheDir, "test-kb", "sources/zeppelin.md", "# Zeppelin\n\nAirships once crossed the Atlantic.\n");
+  writeState(cacheDir, "test-kb");
+  const reindexed = run(["test-kb", "index"], cacheDir, env);
+  assert.equal(reindexed.status, 0, reindexed.stderr);
+  assert.match(reindexed.stdout, /incremental/);
+  assert.deepEqual(lexcatCommands(commandLog), ["build", "sync"]);
+  // The reconcile path reports its counts machine-readably too.
+  const syncArgs = readFileSync(commandLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .find((args) => args.includes("sync"));
+  assert.ok(syncArgs.includes("--json"));
+
+  const search = run(["test-kb", "search", "airships", "--top", "1"], cacheDir, env);
+  assert.equal(search.status, 0, search.stderr);
+  assert.match(search.stdout, /Zeppelin/);
+  assert.match(search.stdout, /sources\/zeppelin\.md/);
+});
+
+const vendoredLexcatManifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "lexcat", "manifest.json"), "utf8"));
+const vendoredLexcatArtifact = vendoredLexcatManifest.artifacts.find(
+  (candidate) => candidate.platform === process.platform && candidate.arch === process.arch,
+);
+
+// The `wkb` launcher is a bash script with no Windows shim, so a Windows host
+// cannot spawn it directly. The Windows CI job exercises the vendored runtime
+// against the LexCAT CLI itself instead of through the launcher.
+const canDriveWkbLauncher = process.platform !== "win32";
+
+test("vendored LexCAT indexes a staged wiki corpus and returns chunk text", {
+  skip: !vendoredLexcatArtifact || !canDriveWkbLauncher,
 }, () => {
-  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-soma-real-"));
+  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-lexcat-real-"));
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox Retrieval\n\nFoxes cache acorns beside the cedar observatory.\n");
   writeWiki(cacheDir, "test-kb", "sources/climate.md", "# Climate\n\nRising sea levels affect coastal cities.\n");
@@ -418,91 +514,79 @@ test("vendored SOMA indexes a staged wiki corpus and queries with a verified mod
 
   const index = run(["test-kb", "index", "--force"], cacheDir);
   assert.equal(index.status, 0, index.stderr);
-  assert.match(index.stdout, /SOMA 0\.3\.0/);
+  assert.match(index.stdout, new RegExp(`LexCAT ${vendoredLexcatManifest.version.replace(/\./g, "\\.")}`));
 
-  const sidecar = JSON.parse(readFileSync(join(cacheDir, "test-kb", "index-store", "soma-corpus", "owner_demo-repo.soma.json"), "utf8"));
-  assert.equal(sidecar.runtime, "soma-cli");
-  assert.equal(sidecar.soma_version, "0.3.0");
+  const sidecar = JSON.parse(readFileSync(join(cacheDir, "test-kb", "index-store", "lexcat-corpus", "owner_demo-repo.lexcat.json"), "utf8"));
+  assert.equal(sidecar.runtime, "lexcat-cli");
+  assert.equal(sidecar.lexcat_version, vendoredLexcatManifest.version);
   assert.match(sidecar.binary_sha256, /^[a-f0-9]{64}$/);
 
-  const vendorManifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "soma", "manifest.json"), "utf8"));
-  const artifact = vendorManifest.artifacts.find((candidate) => candidate.platform === process.platform && candidate.arch === process.arch);
-  const runtimeBin = join(cacheDir, "runtime", "soma", `v0.3.0-${process.platform}-${process.arch}`, artifact.executable);
-  assert.equal(createHash("sha256").update(readFileSync(runtimeBin)).digest("hex"), artifact.executable_sha256);
+  const runtimeBin = join(
+    cacheDir,
+    "runtime",
+    "lexcat",
+    `v${vendoredLexcatManifest.version}-${process.platform}-${process.arch}`,
+    vendoredLexcatArtifact.executable,
+  );
+  assert.equal(createHash("sha256").update(readFileSync(runtimeBin)).digest("hex"), vendoredLexcatArtifact.executable_sha256);
   writeFileSync(runtimeBin, "tampered");
   chmodSync(runtimeBin, 0o755);
   const repaired = run(["test-kb", "index", "--force"], cacheDir);
   assert.equal(repaired.status, 0, repaired.stderr);
-  assert.equal(createHash("sha256").update(readFileSync(runtimeBin)).digest("hex"), artifact.executable_sha256);
+  assert.equal(createHash("sha256").update(readFileSync(runtimeBin)).digest("hex"), vendoredLexcatArtifact.executable_sha256);
 
-  const invalidModelDir = mkdtempSync(join(tmpdir(), "wikikb-soma-invalid-model-"));
-  const rejectedModel = run(["test-kb", "search", "cedar observatory", "--top", "2"], cacheDir, {
-    WIKIKB_SOMA_MODEL_DIR: invalidModelDir,
-  });
-  assert.notEqual(rejectedModel.status, 0);
-  assert.match(rejectedModel.stderr, /model is missing or invalid/);
-
-  if (!process.env.WIKIKB_SOMA_MODEL_DIR) return;
+  // Text, title and wiki path all come back inside `query --json`, so this
+  // exercises the real payload round-trip rather than a rejoin against disk.
   const search = run(["test-kb", "search", "cedar observatory", "--top", "2"], cacheDir);
   assert.equal(search.status, 0, search.stderr);
   assert.match(search.stdout, /Fox Retrieval/);
   assert.match(search.stdout, /sources\/fox\.md/);
+  assert.match(search.stdout, /cedar observatory/);
 });
 
-test("concurrent retrieval waits for one complete verified model cache", {
-  skip: !process.env.WIKIKB_SOMA_MODEL_DIR || !((process.platform === "darwin" && process.arch === "arm64") || (process.platform === "linux" && ["arm64", "x64"].includes(process.arch))),
+test("concurrent retrieval shares one verified vendored runtime", {
+  skip: !vendoredLexcatArtifact || !canDriveWkbLauncher,
 }, async () => {
-  const sourceModelDir = resolve(process.env.WIKIKB_SOMA_MODEL_DIR);
-  const manifest = JSON.parse(readFileSync(join(repoRoot, "vendor", "soma", "manifest.json"), "utf8"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-soma-lock-"));
+  const cacheDir = mkdtempSync(join(tmpdir(), "wikikb-lexcat-lock-"));
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
-  writeWiki(cacheDir, "test-kb", "sources/concurrency.md", "# Concurrency\n\nThe cardinal semaphore marks a complete model cache.\n");
+  writeWiki(cacheDir, "test-kb", "sources/concurrency.md", "# Concurrency\n\nThe cardinal semaphore marks a shared runtime cache.\n");
   writeState(cacheDir, "test-kb");
   const indexed = run(["test-kb", "index", "--force"], cacheDir);
   assert.equal(indexed.status, 0, indexed.stderr);
 
-  const modelRoot = join(cacheDir, "runtime", "soma", "models");
-  const modelDir = join(modelRoot, manifest.model.name);
-  const lockDir = join(modelRoot, `.${manifest.model.name}.install.lock`);
-  mkdirSync(lockDir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(lockDir, "owner.json"), `${JSON.stringify({ pid: process.pid })}\n`);
+  // Force both queries to extract the runtime from scratch at the same time.
+  const runtimeRoot = join(cacheDir, "runtime", "lexcat");
+  rmSync(runtimeRoot, { recursive: true, force: true });
 
-  const first = startRun(["test-kb", "search", "cardinal semaphore", "--top", "1"], cacheDir, { WIKIKB_SOMA_MODEL_DIR: "" });
-  const second = startRun(["test-kb", "search", "cardinal semaphore", "--top", "1"], cacheDir, { WIKIKB_SOMA_MODEL_DIR: "" });
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
-  assert.equal(first.child.exitCode, null, "first query did not wait for the model lock");
-  assert.equal(second.child.exitCode, null, "second query did not wait for the model lock");
-
-  mkdirSync(modelDir, { recursive: true, mode: 0o700 });
-  for (const file of Object.keys(manifest.model.files)) {
-    try {
-      linkSync(join(sourceModelDir, file), join(modelDir, file));
-    } catch {
-      copyFileSync(join(sourceModelDir, file), join(modelDir, file));
-    }
-  }
-  rmSync(lockDir, { recursive: true, force: true });
+  // Four racers rather than two: the publish step is a rename, and a two-process
+  // race only lands in the vulnerable window intermittently.
+  const racers = Array.from({ length: 4 }, () =>
+    startRun(["test-kb", "search", "cardinal semaphore", "--top", "1"], cacheDir));
 
   let timeoutHandle;
   const timeout = new Promise((_, rejectPromise) => {
-    timeoutHandle = setTimeout(() => rejectPromise(new Error("concurrent model-cache queries timed out")), 30_000);
+    timeoutHandle = setTimeout(() => rejectPromise(new Error("concurrent runtime-cache queries timed out")), 60_000);
   });
-  let firstResult;
-  let secondResult;
+  let results;
   try {
-    [firstResult, secondResult] = await Promise.race([Promise.all([first.completed, second.completed]), timeout]);
+    results = await Promise.race([Promise.all(racers.map((racer) => racer.completed)), timeout]);
   } finally {
     clearTimeout(timeoutHandle);
   }
-  for (const result of [firstResult, secondResult]) {
+  for (const result of results) {
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /Waiting for another WikiKB process/);
     assert.match(result.stdout, /Concurrency/);
   }
-  const preset = JSON.parse(readFileSync(join(cacheDir, "runtime", "soma", "presets", "query-v0.3.0.json"), "utf8"));
-  assert.equal(preset.query.model2vec_model_path, modelDir);
-  assert.ok(!existsSync(lockDir));
-  assert.ok(!readdirSync(modelRoot).some((entry) => entry.startsWith(`.${manifest.model.name}.install-`)));
+  const installDir = join(runtimeRoot, `v${vendoredLexcatManifest.version}-${process.platform}-${process.arch}`);
+  assert.equal(
+    createHash("sha256").update(readFileSync(join(installDir, vendoredLexcatArtifact.executable))).digest("hex"),
+    vendoredLexcatArtifact.executable_sha256,
+  );
+  // Publishing is atomic, so no partial scratch directories may survive.
+  assert.deepEqual(
+    readdirSync(runtimeRoot).filter((entry) => entry.startsWith(".extract-") || entry.startsWith(".stale-")),
+    [],
+  );
 });
 
 test("search validates options and filters by all requested tags", () => {
@@ -511,26 +595,30 @@ test("search validates options and filters by all requested tags", () => {
   writeWiki(cacheDir, "test-kb", "sources/alpha.md", "# Alpha\n\n**Tags:** #release #shared\n\nUnique release evidence.\n");
   writeWiki(cacheDir, "test-kb", "sources/beta.md", "# Beta\n\n**Tags:** #draft #shared\n\nUnique draft evidence.\n");
   writeState(cacheDir, "test-kb");
-  const commandLog = join(cacheDir, "tag-scoped-soma-commands.jsonl");
-  const somaEnv = { ...indexWithFakeSoma(cacheDir), WIKIKB_FAKE_SOMA_LOG: commandLog };
+  const commandLog = join(cacheDir, "tag-scoped-lexcat-commands.jsonl");
+  const lexcatEnv = { ...indexWithFakeLexcat(cacheDir), WIKIKB_FAKE_LEXCAT_LOG: commandLog };
 
-  const filtered = run(["test-kb", "search", "unique evidence", "--tag", "shared,release"], cacheDir, somaEnv);
+  const filtered = run(["test-kb", "search", "unique evidence", "--tag", "shared,release"], cacheDir, lexcatEnv);
   assert.equal(filtered.status, 0, filtered.stderr);
   assert.match(filtered.stdout, /Alpha/);
   assert.doesNotMatch(filtered.stdout, /Beta/);
 
-  const indexRoot = join(cacheDir, "test-kb", "index-store", "soma-output", "indexes");
-  const scopedIndexes = readdirSync(indexRoot).filter((entry) => entry.includes("__tags_"));
+  const indexRoot = join(cacheDir, "test-kb", "index-store", "lexcat-output");
+  const scopedIndexes = readdirSync(indexRoot).filter((entry) => entry.includes("__tags_") && entry.endsWith(".db"));
   assert.equal(scopedIndexes.length, 1);
-  const scopedDocs = JSON.parse(readFileSync(join(indexRoot, scopedIndexes[0], "docs.json"), "utf8"));
-  assert.deepEqual(scopedDocs.map((doc) => doc.wikikb_path), ["sources/alpha.md"]);
+  const corpusRoot = join(cacheDir, "test-kb", "index-store", "lexcat-corpus");
+  const scopedCorpus = readdirSync(corpusRoot).find((entry) => entry.includes("__tags_"));
+  const scopedDocs = readdirSync(join(corpusRoot, scopedCorpus))
+    .filter((entry) => entry.endsWith(".md"))
+    .map((entry) => readFileSync(join(corpusRoot, scopedCorpus, entry), "utf8").match(/^wikikb_path: "(.+)"$/m)[1]);
+  assert.deepEqual(scopedDocs, ["sources/alpha.md"]);
   assert.match(filtered.stderr, /Searching scoped index for tags #release, #shared \(1 pages indexed\)/);
 
-  const repeated = run(["test-kb", "search", "unique evidence", "--tag", "release,shared"], cacheDir, somaEnv);
+  const repeated = run(["test-kb", "search", "unique evidence", "--tag", "release,shared"], cacheDir, lexcatEnv);
   assert.equal(repeated.status, 0, repeated.stderr);
   const scopedCommands = readFileSync(commandLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(scopedCommands.filter(([command]) => command === "index").length, 1);
-  assert.equal(scopedCommands.filter(([command]) => command === "query").length, 2);
+  assert.equal(scopedCommands.filter((args) => args.includes("build")).length, 1);
+  assert.equal(scopedCommands.filter((args) => args.includes("query")).length, 2);
 
   for (const args of [
     ["test-kb", "search", "evidence", "--top", "0"],
@@ -579,23 +667,23 @@ test("search is retrieval-only while query requires configured generation", () =
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/fox.md", "# Fox\n\nFoxes are cunning animals used in this release example.\n");
   writeState(cacheDir, "test-kb");
-  const somaEnv = indexWithFakeSoma(cacheDir);
+  const lexcatEnv = indexWithFakeLexcat(cacheDir);
 
-  const retrievalOnly = run(["test-kb", "search", "cunning fox"], cacheDir, somaEnv);
+  const retrievalOnly = run(["test-kb", "search", "cunning fox"], cacheDir, lexcatEnv);
   assert.equal(retrievalOnly.status, 0, retrievalOnly.stderr);
   assert.match(retrievalOnly.stdout, /Fox/);
 
-  const queryWithoutGeneration = run(["test-kb", "query", "cunning fox", "--no-ai"], cacheDir, somaEnv);
+  const queryWithoutGeneration = run(["test-kb", "query", "cunning fox", "--no-ai"], cacheDir, lexcatEnv);
   assert.equal(queryWithoutGeneration.status, 0, queryWithoutGeneration.stderr);
   assert.match(queryWithoutGeneration.stdout, /Fox/);
   assert.match(queryWithoutGeneration.stdout, /sources\/fox\.md/);
 
-  const unconfigured = run(["test-kb", "query", "cunning fox"], cacheDir, somaEnv);
+  const unconfigured = run(["test-kb", "query", "cunning fox"], cacheDir, lexcatEnv);
   assert.notEqual(unconfigured.status, 0);
   assert.match(unconfigured.stderr, /AI provider is not configured/);
   assert.match(unconfigured.stderr, /search.*retrieval only/);
 
-  const prompt = run(["test-kb", "summarize", "cunning fox", "--show-prompt"], cacheDir, somaEnv);
+  const prompt = run(["test-kb", "summarize", "cunning fox", "--show-prompt"], cacheDir, lexcatEnv);
   assert.equal(prompt.status, 0, prompt.stderr);
   assert.match(prompt.stdout, /# Direct response contract/);
   assert.match(prompt.stdout, /Never open with a preface/);
@@ -605,7 +693,7 @@ test("search is retrieval-only while query requires configured generation", () =
   assert.match(prompt.stdout, /sources\/fox\.md/);
 
   for (const task of ["rewrite", "extract", "timeline"]) {
-    const taskPrompt = run(["test-kb", task, "cunning fox", "--show-prompt"], cacheDir, somaEnv);
+    const taskPrompt = run(["test-kb", task, "cunning fox", "--show-prompt"], cacheDir, lexcatEnv);
     assert.equal(taskPrompt.status, 0, `${task} failed: ${taskPrompt.stderr}`);
     assert.match(taskPrompt.stdout, new RegExp(`# Prompt: ${task}`));
   }
@@ -629,7 +717,7 @@ test("search is retrieval-only while query requires configured generation", () =
     'let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { const request = JSON.parse(input); process.stdout.write(`Generated ${request.task}: ${request.query}`); });\n',
   );
   const generated = run(["test-kb", "query", "cunning fox", "--ai"], cacheDir, {
-    ...somaEnv,
+    ...lexcatEnv,
     WIKIKB_AI_PROVIDER: "command",
     WIKIKB_AI_MODEL: "fixture-command-model",
     WIKIKB_LLM_COMMAND: `${JSON.stringify(process.execPath)} ${JSON.stringify(llmScript)}`,
@@ -658,7 +746,7 @@ process.stdin.on("end", () => {
 `,
   );
   const rewritten = run(["test-kb", "query", "fox", "--rewrite-query"], cacheDir, {
-    ...somaEnv,
+    ...lexcatEnv,
     WIKIKB_AI_PROVIDER: "command",
     WIKIKB_AI_MODEL: "fixture-command-model",
     WIKIKB_LLM_COMMAND: `${JSON.stringify(process.execPath)} ${JSON.stringify(rewriteScript)}`,
@@ -667,7 +755,7 @@ process.stdin.on("end", () => {
   assert.match(rewritten.stdout, /Rewritten answer: cunning fox; Emphasize verified traits/);
 
   const diagnosticOnly = run(["test-kb", "query", "fox", "--show-prompt", "--rewrite-query"], cacheDir, {
-    ...somaEnv,
+    ...lexcatEnv,
     WIKIKB_AI_PROVIDER: "command",
     WIKIKB_AI_MODEL: "fixture-command-model",
     WIKIKB_LLM_COMMAND: `${JSON.stringify(process.execPath)} ${JSON.stringify(rewriteScript)}`,
@@ -681,7 +769,7 @@ test("provider and model selection are explicit and independent from credentials
   assert.equal(run(["add", "test-kb", testSlug], cacheDir).status, 0);
   writeWiki(cacheDir, "test-kb", "sources/release.md", "# Provider Release\n\nProvider integration evidence is grounded here.\n");
   writeState(cacheDir, "test-kb");
-  const somaEnv = indexWithFakeSoma(cacheDir);
+  const lexcatEnv = indexWithFakeLexcat(cacheDir);
 
   const fixtureDir = mkdtempSync(join(tmpdir(), "wikikb-provider-api-"));
   const serverScript = join(fixtureDir, "server.cjs");
@@ -742,7 +830,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
 
     for (const malformedToken of ["...", "Bearer github_pat_invalid", "Authorization: token"]) {
       const malformed = run(["test-kb", "query", "provider integration", "--provider", "copilot", "--model", "fixture-copilot-model"], cacheDir, {
-        ...somaEnv,
+        ...lexcatEnv,
         WIKIKB_COPILOT_API_URL: `${baseUrl}/copilot`,
         WIKIKB_COPILOT_TOKEN: malformedToken,
       });
@@ -751,7 +839,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     }
 
     const toolCall = run(["test-kb", "query", "provider integration", "--provider", "openai", "--model", "fixture-tool-call-model"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       WIKIKB_OPENAI_BASE_URL: `${baseUrl}/openai`,
       WIKIKB_OPENAI_API_KEY: "openai-fixture-key",
     });
@@ -759,7 +847,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     assert.match(toolCall.stderr, /attempted a tool call in a text-only request/);
 
     const empty = run(["test-kb", "query", "provider integration", "--provider", "openai", "--model", "fixture-empty-model"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       WIKIKB_OPENAI_BASE_URL: `${baseUrl}/openai`,
       WIKIKB_OPENAI_API_KEY: "openai-fixture-key",
     });
@@ -767,7 +855,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     assert.match(empty.stderr, /empty content/);
 
     const openai = run(["test-kb", "query", "provider integration", "--provider", "openai", "--model", "fixture-openai-model"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       WIKIKB_OPENAI_BASE_URL: `${baseUrl}/openai`,
       WIKIKB_OPENAI_API_KEY: "openai-fixture-key",
     });
@@ -775,7 +863,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     assert.match(openai.stdout, /OpenAI fixture answer/);
 
     const copilot = run(["test-kb", "summarize", "provider integration"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       WIKIKB_AI_PROVIDER: "copilot",
       WIKIKB_AI_MODEL: "fixture-copilot-model",
       WIKIKB_COPILOT_API_URL: `${baseUrl}/copilot`,
@@ -788,7 +876,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     const commandScript = join(fixtureDir, "provider-command.cjs");
     writeFileSync(commandScript, 'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write("Command provider answer"));\n');
     const selected = run(["test-kb", "query", "provider precedence", "--provider", "command", "--model", "fixture-command-model"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       WIKIKB_COPILOT_API_URL: `${baseUrl}/copilot`,
       WIKIKB_COPILOT_TOKEN: "preferred-copilot-token",
       WIKIKB_COPILOT_API: "responses",
@@ -801,7 +889,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     assert.doesNotMatch(selected.stdout, /Copilot responses fixture answer/);
 
     const ghCliFallback = run(["test-kb", "query", "provider integration", "--provider", "copilot", "--model", "fixture-copilot-model"], cacheDir, {
-      ...somaEnv,
+      ...lexcatEnv,
       GITHUB_TOKEN: "git-only-token",
       PATH: `${ghBin}:${process.env.PATH}`,
       WIKIKB_COPILOT_API_URL: `${baseUrl}/copilot`,
@@ -1111,68 +1199,116 @@ function writeState(cacheDir, kb) {
   writeFileSync(full, JSON.stringify({ last_sync: new Date().toISOString() }));
 }
 
-function indexWithFakeSoma(cacheDir, kb = "test-kb") {
-  const env = { WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheDir) };
+function lexcatCommands(logPath) {
+  return readFileSync(logPath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .map((args) => ["build", "sync", "query", "export-representation"].find((candidate) => args.includes(candidate)));
+}
+
+function indexWithFakeLexcat(cacheDir, kb = "test-kb") {
+  const env = { WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheDir) };
   const indexed = run([kb, "index", "--force"], cacheDir, env);
   assert.equal(indexed.status, 0, indexed.stderr);
   return env;
 }
 
-function writeFakeSomaCli(cacheDir) {
-  const bin = join(cacheDir, "fake-soma");
+function writeFakeLexcatCli(cacheDir) {
+  const bin = join(cacheDir, "fake-lexcat");
   writeFileSync(bin, `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 
 const args = process.argv.slice(2);
-const command = args[0];
-if (process.env.WIKIKB_FAKE_SOMA_LOG) fs.appendFileSync(process.env.WIKIKB_FAKE_SOMA_LOG, JSON.stringify(args) + "\\n");
+if (process.env.WIKIKB_FAKE_LEXCAT_LOG) fs.appendFileSync(process.env.WIKIKB_FAKE_LEXCAT_LOG, JSON.stringify(args) + "\\n");
 const option = (name) => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 };
+const indexPath = option("--index") || "lexcat.db";
+const command = ["build", "sync", "query", "export-representation"].find((candidate) => args.includes(candidate));
 
-if (command === "index" && args[1] === "build") {
-  const corpus = args[2];
-  const name = option("--name");
-  const indexDir = path.join(process.env.WIKIKB_SOMA_OUTPUT_ROOT, "indexes", name);
-  fs.mkdirSync(indexDir, { recursive: true });
-  const docs = fs.readdirSync(corpus)
-    .filter((entry) => entry.endsWith(".md"))
-    .map((entry, index) => {
-      const text = fs.readFileSync(path.join(corpus, entry), "utf8");
-      const title = JSON.parse(text.match(/^title: (.+)$/m)[1]);
-      const wikikbPath = JSON.parse(text.match(/^wikikb_path: (.+)$/m)[1]);
-      return { chunk_id: index, title, text, source_file: path.join(corpus, entry), wikikb_path: wikikbPath };
+// Mirrors LexCAT's default --frontmatter=payload: the block is stripped out of
+// the indexed text and carried on the chunk payload instead.
+const splitDocument = (raw) => {
+  const fields = {};
+  if (!raw.startsWith("---\\n")) return { fields: null, text: raw };
+  const end = raw.indexOf("\\n---\\n", 3);
+  if (end === -1) return { fields: null, text: raw };
+  for (const line of raw.slice(4, end).split("\\n")) {
+    const separator = line.indexOf(":");
+    if (separator === -1) continue;
+    const value = line.slice(separator + 1).trim();
+    fields[line.slice(0, separator).trim()] =
+      value.length > 1 && value.startsWith('"') && value.endsWith('"') ? JSON.parse(value) : value;
+  }
+  return { fields, text: raw.slice(end + 5) };
+};
+
+const readCorpus = (corpus) =>
+  fs.readdirSync(corpus)
+    .filter((name) => name.endsWith(".md"))
+    .map((entry) => {
+      const parsed = splitDocument(fs.readFileSync(path.join(corpus, entry), "utf8"));
+      return {
+        chunk_id: entry,
+        doc_id: entry,
+        text: parsed.text,
+        nature: "text",
+        provider: "text-files",
+        kind: parsed.fields ? "frontmatter" : "text",
+        payload: parsed.fields ? { fields: parsed.fields, format: "yaml" } : null,
+      };
     });
-  if (process.env.WIKIKB_FAKE_SOMA_SKIP_INDEX !== "1") {
-    fs.writeFileSync(path.join(indexDir, "docs.json"), JSON.stringify(docs));
-    fs.writeFileSync(path.join(indexDir, "index.db"), "fixture");
+
+if (command === "build" || command === "sync") {
+  if (process.env.WIKIKB_FAKE_LEXCAT_SKIP_INDEX === "1") process.exit(0);
+  const corpus = args[args.indexOf(command) + 1];
+  const chunks = process.env.WIKIKB_FAKE_LEXCAT_EMPTY_INDEX === "1" ? [] : readCorpus(corpus);
+  // Real LexCAT keeps everything in the one file named by --index, so the fake
+  // does too: a scratch index that gets renamed carries its chunks along.
+  fs.writeFileSync(indexPath, JSON.stringify(chunks));
+  process.stderr.write("fusing " + chunks.length + " text file(s) and 0 provider(s)\\n");
+  // A collapsed vocabulary is the failure mode where chunks are indexed but
+  // nothing is retrievable, so it has to be expressible independently.
+  const terms = process.env.WIKIKB_FAKE_LEXCAT_NO_TERMS === "1" ? 0 : chunks.length * 5;
+  if (args.includes("--json")) {
+    const report = { index: indexPath, chunks: chunks.length, terms: terms, unreachable_chunks: 0 };
+    if (command === "sync") {
+      Object.assign(report, { dry_run: false, added: chunks.length, changed: 0, unchanged: 0, removed: 0 });
+    }
+    process.stdout.write(JSON.stringify(report) + "\\n");
+  } else {
+    const verb = command === "sync" ? "synced" : "indexed";
+    process.stdout.write(verb + " " + chunks.length + " chunk(s), " + terms + " term(s) -> " + indexPath + "\\n");
   }
-  process.stdout.write(JSON.stringify({ indexed: docs.length }) + "\\n");
 } else if (command === "query") {
-  if (process.env.WIKIKB_FAKE_SOMA_BAD_QUERY === "1") {
-    process.stdout.write("not-json\\n");
+  if (process.env.WIKIKB_FAKE_LEXCAT_UNPARSEABLE === "1") {
+    process.stdout.write("not json at all\\n");
     process.exit(0);
   }
-  if (process.env.WIKIKB_FAKE_SOMA_EMPTY_QUERY === "1") {
-    process.stdout.write(JSON.stringify({ communities: [] }) + "\\n");
+  if (process.env.WIKIKB_FAKE_LEXCAT_EMPTY_QUERY === "1") {
+    process.stdout.write(JSON.stringify({ mode: "lexical", text_available: true, hits: [] }) + "\\n");
     process.exit(0);
   }
-  if (process.env.WIKIKB_FAKE_SOMA_EMPTY_TEXT === "1") {
-    process.stdout.write(JSON.stringify({ chunks: [{ chunk_id: 1, text: "" }] }) + "\\n");
+  if (process.env.WIKIKB_FAKE_LEXCAT_UNKNOWN_CHUNK === "1") {
+    // A ranked chunk whose text could not be read back carries no text at all.
+    const orphan = { row: 1, score: 9, chunk_id: "no-such-chunk", doc_id: "no-such-chunk", text: "", payload: null };
+    process.stdout.write(JSON.stringify({ mode: "lexical", text_available: true, hits: [orphan] }) + "\\n");
     process.exit(0);
   }
-  const docs = JSON.parse(fs.readFileSync(path.join(option("--index"), "docs.json"), "utf8"));
-  const query = args.at(-1).toLowerCase();
-  const chunks = docs
-    .map((doc, index) => ({ ...doc, score: doc.text.toLowerCase().includes(query.split(/\\s+/)[0]) ? 2 : 0.5, index }))
-    .sort((a, b) => b.score - a.score);
-  process.stdout.write(JSON.stringify({ communities: [{ community_id: 7, chunks }] }) + "\\n");
-} else if (args.includes("--version")) {
-  process.stdout.write("soma fixture\\n");
+  const term = args[args.indexOf("query") + 1].toLowerCase().trim().split(" ")[0];
+  const chunks = fs.existsSync(indexPath) ? JSON.parse(fs.readFileSync(indexPath, "utf8")) : [];
+  const limit = Number(option("--n") || 10);
+  const hits = chunks
+    .map((chunk, row) => ({ ...chunk, row, score: chunk.text.toLowerCase().includes(term) ? 2 : 0.5 }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+  process.stderr.write("mode: Lexical\\n");
+  process.stdout.write(JSON.stringify({ mode: "lexical", text_available: true, hits }) + "\\n");
 } else {
-  process.stderr.write("unsupported fake SOMA command\\n");
+  process.stderr.write("unsupported fake LexCAT command\\n");
   process.exitCode = 2;
 }
 `);
@@ -1297,7 +1433,7 @@ exec "$REAL_GIT" -c "url.$FAKE_REMOTE.insteadOf=$CLEAN_REMOTE" "$@"
 
   const cacheA = mkdtempSync(join(tmpdir(), "wikikb-client-a-"));
   const logA = join(cacheA, "commands.jsonl");
-  const envA = { ...baseEnv, WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheA), WIKIKB_FAKE_SOMA_LOG: logA };
+  const envA = { ...baseEnv, WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheA), WIKIKB_FAKE_LEXCAT_LOG: logA };
   assert.equal(run(["add", "test-kb", testSlug], cacheA, envA).status, 0);
   assert.equal(run(["test-kb", "sync"], cacheA, envA).status, 0);
   const built = run(["test-kb", "index"], cacheA, envA);
@@ -1314,13 +1450,13 @@ exec "$REAL_GIT" -c "url.$FAKE_REMOTE.insteadOf=$CLEAN_REMOTE" "$@"
 
   const cacheB = mkdtempSync(join(tmpdir(), "wikikb-client-b-"));
   const logB = join(cacheB, "commands.jsonl");
-  const envB = { ...baseEnv, WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheB), WIKIKB_FAKE_SOMA_LOG: logB };
+  const envB = { ...baseEnv, WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheB), WIKIKB_FAKE_LEXCAT_LOG: logB };
   assert.equal(run(["add", "test-kb", testSlug], cacheB, envB).status, 0);
   const restored = run(["test-kb", "search", "heliotrope"], cacheB, envB);
   assert.equal(restored.status, 0, restored.stderr);
   assert.match(restored.stdout, /Shared Fact/);
-  let commandsB = readFileSync(logB, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.deepEqual(commandsB.map(([command]) => command), ["query"]);
+  let commandsB = lexcatCommands(logB);
+  assert.deepEqual(commandsB, ["query"]);
   assert.equal(gitOk(["--git-dir", remoteDir, "rev-parse", "wikikb-cache-v1"], fixtureDir), cacheCommitBeforeQuery);
 
   writeFileSync(join(seedDir, "sources", "shared.md"), "# Shared Fact\n\nThe refreshed shared-cache fact is vermilion.\n");
@@ -1330,18 +1466,21 @@ exec "$REAL_GIT" -c "url.$FAKE_REMOTE.insteadOf=$CLEAN_REMOTE" "$@"
   const refreshed = run(["test-kb", "search", "vermilion"], cacheB, envB);
   assert.equal(refreshed.status, 0, refreshed.stderr);
   assert.match(refreshed.stdout, /refreshed shared-cache fact/);
-  commandsB = readFileSync(logB, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(commandsB.filter(([command]) => command === "index").length, 1);
+  commandsB = lexcatCommands(logB);
+  // The restored index matches the current build contract, so a changed source
+  // is reconciled in place rather than rebuilt from scratch.
+  assert.equal(commandsB.filter((command) => command === "sync").length, 1);
+  assert.equal(commandsB.filter((command) => command === "build").length, 0);
 
   const cacheC = mkdtempSync(join(tmpdir(), "wikikb-client-c-"));
   const logC = join(cacheC, "commands.jsonl");
-  const envC = { ...baseEnv, WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheC), WIKIKB_FAKE_SOMA_LOG: logC };
+  const envC = { ...baseEnv, WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheC), WIKIKB_FAKE_LEXCAT_LOG: logC };
   assert.equal(run(["add", "test-kb", testSlug], cacheC, envC).status, 0);
   const latest = run(["test-kb", "search", "vermilion"], cacheC, envC);
   assert.equal(latest.status, 0, latest.stderr);
   assert.match(latest.stdout, /refreshed shared-cache fact/);
-  const commandsC = readFileSync(logC, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.deepEqual(commandsC.map(([command]) => command), ["query"]);
+  const commandsC = lexcatCommands(logC);
+  assert.deepEqual(commandsC, ["query"]);
 
   const offlineSource = join(fixtureDir, "offline.md");
   writeFileSync(offlineSource, "# Offline Fact\n\nThe locally queued fact is celadon.\n");
@@ -1358,34 +1497,30 @@ exec "$REAL_GIT" -c "url.$FAKE_REMOTE.insteadOf=$CLEAN_REMOTE" "$@"
 
   const cacheD = mkdtempSync(join(tmpdir(), "wikikb-client-d-"));
   const logD = join(cacheD, "commands.jsonl");
-  const envD = { ...baseEnv, WIKIKB_SOMA_BIN: writeFakeSomaCli(cacheD), WIKIKB_FAKE_SOMA_LOG: logD };
+  const envD = { ...baseEnv, WIKIKB_LEXCAT_BIN: writeFakeLexcatCli(cacheD), WIKIKB_FAKE_LEXCAT_LOG: logD };
   assert.equal(run(["add", "test-kb", testSlug], cacheD, envD).status, 0);
   const eventual = run(["test-kb", "search", "celadon"], cacheD, envD);
   assert.equal(eventual.status, 0, eventual.stderr);
   assert.match(eventual.stdout, /Offline Fact/);
-  const commandsD = readFileSync(logD, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.deepEqual(commandsD.map(([command]) => command), ["query"]);
+  const commandsD = lexcatCommands(logD);
+  assert.deepEqual(commandsD, ["query"]);
 
-  const supportsVendoredRuntime = (process.platform === "darwin" && process.arch === "arm64")
-    || (process.platform === "linux" && ["arm64", "x64"].includes(process.arch));
-  if (supportsVendoredRuntime) {
+  if (vendoredLexcatArtifact) {
     const cacheE = mkdtempSync(join(tmpdir(), "wikikb-client-real-producer-"));
-    const realEnv = { ...baseEnv, WIKIKB_SOMA_BIN: "", WIKIKB_FAKE_SOMA_LOG: "" };
+    const realEnv = { ...baseEnv, WIKIKB_LEXCAT_BIN: "", WIKIKB_FAKE_LEXCAT_LOG: "" };
     assert.equal(run(["add", "test-kb", testSlug], cacheE, realEnv).status, 0);
     const realBuild = run(["test-kb", "index", "--force"], cacheE, realEnv);
     assert.equal(realBuild.status, 0, realBuild.stderr);
-    assert.match(realBuild.stdout, /SOMA 0\.3\.0/);
+    assert.match(realBuild.stdout, new RegExp(`LexCAT ${vendoredLexcatManifest.version.replace(/\./g, "\\.")}`));
 
     const cacheF = mkdtempSync(join(tmpdir(), "wikikb-client-real-consumer-"));
     assert.equal(run(["add", "test-kb", testSlug], cacheF, realEnv).status, 0);
     const realRestore = run(["test-kb", "index"], cacheF, realEnv);
     assert.equal(realRestore.status, 0, realRestore.stderr);
     assert.match(realRestore.stdout, /restored from shared wiki cache/);
-    if (process.env.WIKIKB_SOMA_MODEL_DIR) {
-      const realSearch = run(["test-kb", "search", "celadon", "--top", "3"], cacheF, realEnv);
-      assert.equal(realSearch.status, 0, realSearch.stderr);
-      assert.match(realSearch.stdout, /Offline Fact/);
-    }
+    const realSearch = run(["test-kb", "search", "celadon", "--top", "3"], cacheF, realEnv);
+    assert.equal(realSearch.status, 0, realSearch.stderr);
+    assert.match(realSearch.stdout, /Offline Fact/);
   }
 });
 

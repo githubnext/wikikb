@@ -13,8 +13,7 @@ The registry maps a short name to an `owner/repository` slug. For AI selection, 
 | `WIKIKB_FETCH_TIMEOUT_MS` | `30000` | URL and GitHub API timeout |
 | `WIKIKB_MAX_SOURCE_BYTES` | `5242880` | Maximum decoded response size |
 | `WIKIKB_ALLOW_PRIVATE_URLS` | unset | Test-only override allowing HTTP/private URL fixtures; never set in workflows |
-| `WIKIKB_SOMA_BIN` | vendored executable | Controlled runtime override |
-| `WIKIKB_SOMA_MODEL_DIR` | managed cache | Verified preinstalled retrieval model |
+| `WIKIKB_LEXCAT_BIN` | vendored executable | Controlled runtime override |
 | `WIKIKB_PROMPTS_DIR` | `~/.wikikb/prompts` | Prompt overrides |
 | `WIKIKB_PROMPT_CHUNK_CHARS` | `6000` | Per-chunk prompt limit |
 | `WIKIKB_TARGET` | none | Target used by `tools/kb-search.sh` |
@@ -89,9 +88,13 @@ does, so configure only a command you control.
 
 ## Runtime And Cache
 
-SOMA is mandatory. WikiKB verifies and extracts the matching executable from `vendor/soma/`; it never downloads a runtime.
+LexCAT is mandatory. WikiKB verifies and extracts the matching executable from `vendor/lexcat/`; it never downloads a runtime.
 
-The mandatory static model is pinned by revision and seven SHA-256 hashes. First retrieval installs it into a staging directory under a process lock, verifies it, and atomically activates it. Concurrent callers wait; dead or stale locks recover. `WIKIKB_SOMA_MODEL_DIR` selects a preinstalled copy and fails closed on mismatch.
+LexCAT is model-free lexical BM25 retrieval. It downloads no model, performs no embedding step, and needs no network at query time. Supported vendored platforms are `linux/x64`, `linux/arm64`, `darwin/arm64`, `darwin/x64`, and `win32/x64`; `win32/arm64` runs the `win32/x64` build under emulation. Unsupported hosts fail with guidance to set `WIKIKB_LEXCAT_BIN` to an operator-approved executable.
+
+Wiki identity travels with the corpus as YAML frontmatter, which LexCAT strips from the indexed text and returns on every chunk of a document, so retrieval reads titles, wiki paths, and chunk text straight out of `lexcat query --json`. An index built by the current contract is refreshed with `lexcat sync`, which reconciles only added, changed, and removed documents; `wkb <kb> index --force` always rebuilds from scratch.
+
+Indexing runs `build`/`sync` with `--json` and requires the reported chunk **and** term counts to be non-zero. Neither an empty corpus nor a vocabulary the analyzer collapsed to nothing is an error to LexCAT — both produce a valid index that answers every later query with no hits at exit 0 — so an index that cannot be searched is rejected when it is built rather than silently at query time.
 
 The parentless `wikikb-cache-v1` branch stores at most eight indexes plus integrity manifests and no Markdown. Restore validates source, runtime, paths, size, and checksums. These checks prove integrity, not authorship: anyone allowed to write the private wiki is inside the cache trust boundary. A requested push that remains unpublished fails the command.
 

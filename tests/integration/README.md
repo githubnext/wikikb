@@ -41,7 +41,7 @@ Every run:
 5. Confirms remote state from clean clients and restores the shared index.
 6. Invalidates, republishes, and independently verifies the replacement index.
 7. Runs every prompt task and an explicitly selected live Copilot generation.
-8. Downloads and verifies the pinned retrieval model in a fresh cache.
+8. Builds a fresh full LexCAT index in a clean cache.
 9. Removes live pages and issues in the cleanup hook.
 
 Cleanup removes current files, not Git history, and a killed process may prevent
@@ -61,6 +61,5 @@ the environment above.
 | `WIKIKB_GITHUB_TOKEN` | Backward-compatible repository credential override |
 | `WIKIKB_COPILOT_TOKEN` | Optional local Copilot credential override; defaults to `gh auth token` |
 | `WIKIKB_AI_MODEL` | Copilot model; defaults to `claude-sonnet-4.6` |
-| `WIKIKB_SOMA_BIN` | Controlled runtime override |
-| `WIKIKB_SOMA_MODEL_DIR` | Optional verified preinstalled model; fresh install is still tested separately |
+| `WIKIKB_LEXCAT_BIN` | Controlled runtime override |
 | `WIKIKB_ALLOW_ANY_TEST_REPO` | Explicitly bypass only the disposable-name guard |

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Write your question below. A constrained job uses SOMA retrieval and a text-only Copilot request, then posts the cited answer as a comment. It does not file the answer automatically; use `kb-remember` if the result should become durable knowledge.
+        Write your question below. A constrained job uses LexCAT retrieval and a text-only Copilot request, then posts the cited answer as a comment. It does not file the answer automatically; use `kb-remember` if the result should become durable knowledge.
   - type: textarea
     id: question
     attributes:

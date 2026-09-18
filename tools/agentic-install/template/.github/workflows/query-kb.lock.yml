@@ -280,7 +280,7 @@ jobs:
 
           The agent has no Bash, GitHub, or other direct tools. Call `answer-question`
           once with `confirm` set to `run`. The constrained job reads the issue body
-          directly from the event, executes SOMA retrieval, and sends a
+          directly from the event, executes LexCAT retrieval, and sends a
           text-only generation request that contains no tool definitions. It posts the
           answer and cited source paths as an issue comment. Leave the question open for
           follow-up.
@@ -461,7 +461,7 @@ jobs:
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
           cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_6eabe1d94110c52d_EOF'
-          {"answer-question":{"description":"Run the issue question through wkb's SOMA retrieval and text-only Copilot provider, then post the result.","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"Question answered with SOMA retrieval and a text-only AI call"},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
+          {"answer-question":{"description":"Run the issue question through wkb's LexCAT retrieval and text-only Copilot provider, then post the result.","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"Question answered with LexCAT retrieval and a text-only AI call"},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
           GH_AW_SAFE_OUTPUTS_CONFIG_6eabe1d94110c52d_EOF
       - name: Generate Safe Outputs Tools
         env:
@@ -471,7 +471,7 @@ jobs:
               "repo_params": {},
               "dynamic_tools": [
                 {
-                  "description": "Run the issue question through wkb's SOMA retrieval and text-only Copilot provider, then post the result.",
+                  "description": "Run the issue question through wkb's LexCAT retrieval and text-only Copilot provider, then post the result.",
                   "inputSchema": {
                     "additionalProperties": false,
                     "properties": {

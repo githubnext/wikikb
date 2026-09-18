@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SOMA-only KB search. WIKIKB_TARGET must name a registered, synced,
+# LexCAT-only KB search. WIKIKB_TARGET must name a registered, synced,
 # and indexed target. The wkb command fails if the runtime cannot run.
 #
 # Usage:

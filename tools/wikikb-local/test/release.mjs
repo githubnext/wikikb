@@ -65,7 +65,7 @@ test("agentic installer creates an isolated, buildable, conflict-aware target ru
     assert.ok(existsSync(join(target, ".github", "wikikb", "package-lock.json")));
     assert.ok(existsSync(join(target, ".github", "aw", "actions-lock.json")));
     assert.deepEqual(JSON.parse(readFileSync(join(target, ".github", "workflows", "aw.json"), "utf8")), { maintenance: false });
-    assert.ok(existsSync(join(target, ".github", "wikikb", "vendor", "soma", "manifest.json")));
+    assert.ok(existsSync(join(target, ".github", "wikikb", "vendor", "lexcat", "manifest.json")));
     assert.doesNotMatch(readFileSync(join(target, ".github", "workflows", "compile-kb.md"), "utf8"), /^\s{2}push:/m);
     assert.match(readFileSync(join(target, ".github", "workflows", "sync-labels.yml"), "utf8"), /branches: \["trunk"\]/);
     assert.match(readFileSync(join(target, ".github", "workflows", "query-kb.md"), "utf8"), /\.github\/wikikb/);
@@ -126,7 +126,7 @@ test("default-branch agentic install preserves compiled workflow integrity", () 
   }
 });
 
-test("KB search helper refuses to run without a SOMA-backed target", () => {
+test("KB search helper refuses to run without a LexCAT-backed target", () => {
   const missingTarget = run("bash", ["tools/kb-search.sh", "release"]);
   assert.equal(missingTarget.status, 1);
   assert.match(missingTarget.stderr, /WIKIKB_TARGET is required; no alternate search path exists/);
@@ -143,28 +143,26 @@ test("KB search helper refuses to run without a SOMA-backed target", () => {
   }
 });
 
-test("vendored SOMA manifest pins binary-only archives by checksum", () => {
-  const vendorDir = join(repoRoot, "vendor", "soma");
+test("vendored LexCAT manifest pins binary-only archives by checksum", () => {
+  const vendorDir = join(repoRoot, "vendor", "lexcat");
   const manifest = JSON.parse(readFileSync(join(vendorDir, "manifest.json"), "utf8"));
-  assert.equal(manifest.name, "SOMA");
-  assert.equal(manifest.version, "0.3.0");
+  assert.equal(manifest.name, "LEXCAT");
+  assert.equal(manifest.version, "0.0.20");
   assert.equal(manifest.notices, "THIRD_PARTY_NOTICES.txt");
-  assert.equal(manifest.model.repository, "minishlab/potion-retrieval-32M");
-  assert.equal(manifest.model.revision, "6fc8051fab2a1e0ee76689cf08c853792ac285e7");
-  assert.equal(manifest.model.license, "MIT");
-  assert.equal(Object.keys(manifest.model.files).length, 7);
-  for (const [file, digest] of Object.entries(manifest.model.files)) {
-    assert.equal(file, file.split(/[\\/]/).at(-1));
-    assert.match(digest, /^[a-f0-9]{64}$/);
-  }
+  // LexCAT is a model-free lexical engine, so no model may be pinned.
+  assert.ok(!("model" in manifest));
+  assert.equal(manifest.index_schema_version, 17);
   assert.equal(manifest.artifacts.length, 5);
   const notices = join(vendorDir, manifest.notices);
   assert.equal(createHash("sha256").update(readFileSync(notices)).digest("hex"), manifest.notices_sha256);
 
   for (const artifact of manifest.artifacts) {
-    assert.match(artifact.archive, /^soma-v0\.3\.0-/);
-    assert.match(artifact.executable, /^soma(?:\.exe)?$/);
-    assert.match(artifact.upstream_archive_sha256, /^[a-f0-9]{64}$/);
+    assert.match(artifact.archive, /^lexcat-v0\.0\.20-/);
+    assert.match(artifact.executable, /^lexcat(?:\.exe)?$/);
+    assert.match(artifact.upstream_sha256, /^[a-f0-9]{64}$/);
+    assert.match(artifact.upstream_asset, /^lexcat-/);
+    // The repackaged archive must carry the untouched upstream executable.
+    assert.equal(artifact.executable_sha256, artifact.upstream_sha256);
     const archive = join(vendorDir, artifact.archive);
     assert.ok(existsSync(archive), `${artifact.archive} is missing`);
     const digest = createHash("sha256").update(readFileSync(archive)).digest("hex");
@@ -178,20 +176,39 @@ test("vendored SOMA manifest pins binary-only archives by checksum", () => {
   }
 });
 
-test("native vendored SOMA executable reports version 0.3.0", () => {
-  const vendorDir = join(repoRoot, "vendor", "soma");
+test("native vendored LexCAT executable matches its pinned checksum and query contract", () => {
+  const vendorDir = join(repoRoot, "vendor", "lexcat");
   const manifest = JSON.parse(readFileSync(join(vendorDir, "manifest.json"), "utf8"));
   const artifact = manifest.artifacts.find((item) => item.platform === process.platform && item.arch === process.arch);
   if (!artifact) return;
-  const extracted = mkdtempSync(join(tmpdir(), "wikikb-soma-version-"));
+  const extracted = mkdtempSync(join(tmpdir(), "wikikb-lexcat-version-"));
   const unpacked = run("tar", ["-xf", join(vendorDir, artifact.archive), "-C", extracted]);
   assert.equal(unpacked.status, 0, unpacked.stderr || unpacked.stdout);
-  const version = run(join(extracted, artifact.executable), ["--version"]);
+  const executable = join(extracted, artifact.executable);
+  assert.equal(createHash("sha256").update(readFileSync(executable)).digest("hex"), artifact.executable_sha256);
+  // 0.0.20 stamps the real release version into the binary (upstream #234), so
+  // the reported semver is now a genuine pin and is asserted alongside the
+  // index schema that WikiKB's index cache keys on.
+  const version = run(executable, ["--version"]);
   assert.equal(version.status, 0, version.stderr || version.stdout);
-  assert.match(version.stdout.trim(), /0\.3\.0$/);
+  const versionText = `${version.stdout}${version.stderr}`;
+  assert.match(versionText, new RegExp(`\\blexcat ${manifest.version.replace(/\./g, "\\.")}\\b`));
+  assert.match(versionText, new RegExp(`index schema ${manifest.index_schema_version}\\b`));
+  const help = run(executable, ["--help"]);
+  assert.equal(help.status, 0, help.stderr || help.stdout);
+  const helpText = `${help.stdout}${help.stderr}`;
+  for (const subcommand of ["build", "sync", "query"]) assert.match(helpText, new RegExp(`\\b${subcommand}\\b`));
+  assert.match(helpText, /--index/);
+  // Indexing parses the chunk and term counts out of the machine-readable
+  // report, so `--json` has to exist on the write paths and not just on `query`.
+  for (const subcommand of ["build", "sync"]) {
+    const subcommandHelp = run(executable, [subcommand, "--help"]);
+    assert.equal(subcommandHelp.status, 0, subcommandHelp.stderr || subcommandHelp.stdout);
+    assert.match(`${subcommandHelp.stdout}${subcommandHelp.stderr}`, /--json/);
+  }
 });
 
-test("source installer builds a launcher backed by the vendored SOMA runtime", () => {
+test("source installer builds a launcher backed by the vendored LexCAT runtime", () => {
   const home = mkdtempSync(join(tmpdir(), "wikikb-install-test-"));
   const installDir = join(home, "bin");
   const installed = run("bash", ["tools/wikikb-local/install.sh"], {
@@ -201,12 +218,12 @@ test("source installer builds a launcher backed by the vendored SOMA runtime", (
     },
   });
   assert.equal(installed.status, 0, installed.stderr || installed.stdout);
-  assert.match(installed.stdout, /SOMA: vendored 0\.3\.0 binary available/);
+  assert.match(installed.stdout, /LexCAT: vendored 0\.0\.20 binary available/);
 
   const launcher = join(installDir, "wkb");
   assert.ok(existsSync(launcher));
   const launcherBody = readFileSync(launcher, "utf8");
-  assert.doesNotMatch(launcherBody, /SOMA_BINDINGS|SOMA_NATIVE/);
+  assert.doesNotMatch(launcherBody, /LEXCAT_BINDINGS|LEXCAT_NATIVE/);
   assert.match(launcherBody, /tools\/wikikb-local\/wkb/);
 
   const version = run(launcher, ["--version"], { env: { HOME: home } });

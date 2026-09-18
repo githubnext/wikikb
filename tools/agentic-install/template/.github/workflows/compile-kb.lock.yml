@@ -299,7 +299,7 @@ jobs:
 
           Do not read and rewrite the files into wiki pages yourself. Do not call
           `push-wiki`. `wkb ingest` owns source-page generation, wiki pushes, and shared
-          SOMA indexing.
+          LexCAT indexing.
 
           The constrained job rejects empty requests, apparent credentials, non-HTTPS or
           credentialed URLs, and private-network destinations. It posts a fixed completion
@@ -480,7 +480,7 @@ jobs:
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
           cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_eba63fac8bd059d7_EOF'
-          {"create_report_incomplete_issue":{},"ingest-sources":{"description":"Authorize the constrained job to derive and ingest sources from the triggering open issue through the WikiKB CLI.\n","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"Sources ingested and the shared SOMA index updated"},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
+          {"create_report_incomplete_issue":{},"ingest-sources":{"description":"Authorize the constrained job to derive and ingest sources from the triggering open issue through the WikiKB CLI.\n","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"Sources ingested and the shared LexCAT index rebuilt"},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
           GH_AW_SAFE_OUTPUTS_CONFIG_eba63fac8bd059d7_EOF
       - name: Generate Safe Outputs Tools
         env:
@@ -1303,7 +1303,7 @@ jobs:
       - name: Complete issue request
         run: |
           set -euo pipefail
-          gh issue comment "$WIKIKB_ISSUE_NUMBER" --body "WikiKB ingested the requested sources and updated the shared SOMA index."
+          gh issue comment "$WIKIKB_ISSUE_NUMBER" --body "WikiKB ingested the requested sources and rebuilt the shared LexCAT index."
           gh issue close "$WIKIKB_ISSUE_NUMBER" --reason completed
         env:
           GH_AW_AGENT_OUTPUT: ${{ runner.temp }}/gh-aw/safe-jobs/agent_output.json

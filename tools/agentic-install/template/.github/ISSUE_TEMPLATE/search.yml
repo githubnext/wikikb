@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Enter your search query below. A constrained job will run SOMA retrieval over the wiki and post ranked text results. This is semantic retrieval, not a keyword search, and it does not call a generative model.
+        Enter your search query below. A constrained job will run LexCAT BM25 retrieval over the wiki and post ranked text results. This is model-free lexical retrieval, and it does not call a generative model.
   - type: textarea
     id: query
     attributes:

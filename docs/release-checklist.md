@@ -36,7 +36,7 @@ Set `WIKIKB_TEST_REPO` in `.env` or the process environment. Explicit
 active `gh auth token`; local runs obtain that CLI credential automatically
 when either override is absent.
 
-The suite always runs writes, deployed issue/file workflows, a fresh pinned-model download, an explicitly selected Copilot request, cache invalidation/restoration, and cleanup. Confirm the cleanup push; test commits remain in history.
+The suite always runs writes, deployed issue/file workflows, a fresh full LexCAT index build, an explicitly selected Copilot request, cache invalidation/restoration, and cleanup. Confirm the cleanup push; test commits remain in history.
 
 The hosted `Live Integration` and `Release` workflows use the same mandatory
 suite. Configure the WikiKB source repository with the Actions variable

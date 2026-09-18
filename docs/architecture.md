@@ -8,7 +8,7 @@ WikiKB implements Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf
 | --- | --- |
 | GitHub wiki | Source, concept, query, and navigation pages |
 | `wkb` | Sync, retrieval, prompting, ingestion, and maintenance |
-| SOMA | Only indexing and retrieval backend |
+| LexCAT | Only indexing and retrieval backend |
 | `wikikb-cache-v1` | Shared generated indexes |
 | `~/.wikikb` | Registry, clones, prompts, runtime, and local indexes |
 | Agentic Workflows | Issue-driven reads and controlled writes |
@@ -31,9 +31,9 @@ The shared branch contains pairs only:
 .wikikb-cache/v1/indexes/<index>.tar.gz
 ```
 
-Each manifest binds an archive to exact Markdown, namespace, indexing contract, runtime, size, and checksums. Snapshots are parentless, pushed with `--force-with-lease`, retain at most eight indexes, and contain no Markdown.
+Each manifest binds an archive containing a single SQLite index file to exact Markdown, namespace, indexing contract, runtime, size, and checksums. Snapshots are parentless, pushed with `--force-with-lease`, retain at most eight indexes, and contain no Markdown.
 
-Reads sync pending commits, digest the selected Markdown, then reuse, restore, or build an index. A new index is shared only after its Markdown is remote. Retrieval stops on any runtime, model, output, integrity, or empty-context failure.
+Reads sync pending commits, digest the selected Markdown, then reuse, restore, or fully rebuild an index. A new index is shared only after its Markdown is remote. Retrieval stops on any runtime, output, integrity, or empty-context failure.
 
 Writes normalize a file, public HTTPS URL, or issue into `sources/`, stage only operation-owned paths, and push unless `--no-push` is set. URL redirects are revalidated, private/local destinations are rejected, explicit titles are honored, and same-title sources cannot overwrite each other. A requested push must reach the wiki or the command fails; uncommitted content cannot enter the shared cache.
 

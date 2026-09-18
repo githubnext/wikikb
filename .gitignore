@@ -2,6 +2,6 @@
 .env
 tests/integration/.env
 node_modules/
-.soma/
+.lexcat/
 tools/wikikb-local/dist/
 release/

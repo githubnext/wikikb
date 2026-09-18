@@ -1,8 +1,8 @@
 # WikiKB
 
-WikiKB is an efficient, semantic knowledge base for humans and agents, stored in a GitHub repository's wiki. Content can be ingested or queried from the command line, through GitHub Issues, or as an agent skill.
+WikiKB is an efficient, retrieval-backed knowledge base for humans and agents, stored in a GitHub repository's wiki. Content can be ingested or queried from the command line, through GitHub Issues, or as an agent skill.
 
-An LLM provider is not required to ingest content, or to search the knowledge base. A small, local embedding model runs entirely on CPU, either on the client machine or within GitHub Actions. 
+An LLM provider is not required to ingest content, or to search the knowledge base. A local, model-free LexCAT BM25 engine runs entirely on CPU, either on the client machine or within GitHub Actions.
 
 Retrieval-augmented generation (RAG) operations, such as summarization and question-answering, can use any configured AI provider.
 
@@ -29,7 +29,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export WIKIKB_GITHUB_TOKEN="$(gh auth token)"
 ```
 
-The manual installer places a checkout-backed launcher in `~/.local/bin`; `WKB_INSTALL_DIR` changes the destination. The release includes the SOMA executables for macOS arm64, Linux x64/arm64, and Windows x64/arm64. Other platforms are not supported.
+The manual installer places a checkout-backed launcher in `~/.local/bin`; `WKB_INSTALL_DIR` changes the destination. The release includes the LexCAT executables for linux/x64, darwin/arm64, and win32/x64. Other platforms must set `WIKIKB_LEXCAT_BIN` to an operator-approved executable.
 
 ### GitHub CLI extension
 
@@ -56,7 +56,7 @@ This writes `~/.agents/skills/wikikb-memory/SKILL.md` and its agent metadata. Ex
 wkb add ai-research owner/repository
 wkb ai-research sync
 wkb ai-research search "hybrid retrieval methods" --top 5
-wkb ai-research query "How does graph-based retrieval differ from vector search?" --no-ai
+wkb ai-research query "How does graph-based retrieval differ from keyword search?" --no-ai
 ```
 
 Here, `ai-research` is the local name registered for `owner/repository`. The
@@ -80,7 +80,7 @@ discussions:
 
 ```bash
 wkb ai-research.sources.tool-discussions ingest-issues tool-owner/tool-repository --state all --limit 50 --comments
-wkb ai-research.sources.tool-discussions search "embedding quality" --top 10
+wkb ai-research.sources.tool-discussions search "ranking quality" --top 10
 ```
 
 Finally, retrieve relevant entries from the whole `ai-research` wiki and
@@ -102,7 +102,7 @@ wkb ai-research summarize "Summarize the main approaches to retrieval-augmented 
 | `wkb skills install [--force] [--path directory]` | Install the WikiKB agent skill |
 | `wkb <target> sync` | Clone or update the wiki |
 | `wkb <target> status` | Show local state |
-| `wkb <target> index [--force]` | Restore, update, and share an index |
+| `wkb <target> index [--force]` | Restore, rebuild, and share an index |
 | `wkb <target> search <query> [--top N] [--tag tags]` | Return ranked context |
 | `wkb <target> query <question> [options]` | Retrieve context and optionally answer |
 | `wkb <target> summarize\|rewrite\|extract\|timeline <request>` | Retrieve and run a prompt task |
@@ -117,7 +117,7 @@ Run `wkb --help` for options.
 
 ## Retrieval And Cache
 
-WikiKB uses the local SOMA indexing and retrieval backend, distributed as checksum-verified platform binaries.
+WikiKB uses the local LexCAT model-free lexical BM25 indexing and retrieval backend, distributed as checksum-verified platform binaries.
 
 Generated indexes are stored as bounded, checksum-verified archives on the wiki repository's parentless `wikikb-cache-v1` branch. The cache branch contains no wiki Markdown. Reads sync, restore a compatible index, or build and publish one. Offline work stays local and retries later; `--no-push` content never enters the shared cache.
 
@@ -140,6 +140,6 @@ npm ci
 npm run release:check
 ```
 
-The live suite is documented in [Integration Tests](tests/integration/README.md). The supported artifact contains only the CLI, Agentic Workflows, approved runtime binaries, and supporting source. WikiKB source is MIT-licensed; the vendored SOMA binaries are distributed under separate terms.
+The live suite is documented in [Integration Tests](tests/integration/README.md). The supported artifact contains only the CLI, Agentic Workflows, approved runtime binaries, and supporting source. WikiKB source is MIT-licensed; the vendored LexCAT binaries are distributed under separate terms.
 
 Reference: [Architecture](docs/architecture.md), [Agent Memory](docs/agent-memory.md), [Release Scope](docs/release-scope.md), [Release Checklist](docs/release-checklist.md), [Contributing](CONTRIBUTING.md), and [License](LICENSE).

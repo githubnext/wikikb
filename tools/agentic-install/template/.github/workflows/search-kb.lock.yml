@@ -23,7 +23,7 @@
 #
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
-# Search the private knowledge-base wiki with SOMA and return ranked results
+# Search the private knowledge-base wiki with LexCAT and return ranked results
 #
 # inlined-imports: true
 #
@@ -280,9 +280,9 @@ jobs:
 
           The agent has no Bash, GitHub, or other direct tools. Call `search-kb` once with
           `confirm` set to `run`. The constrained job reads the query directly from the
-          event, runs SOMA retrieval, posts its ranked text output, and
-          closes the issue. If the job fails, do not substitute grep, GitHub search, or
-          model memory.
+          event, runs LexCAT retrieval, posts its ranked text output, and
+          closes the issue. If the job fails, do not substitute repository grep,
+          GitHub search, or model memory.
 
           GH_AW_PROMPT_a773e4835027801d_EOF
           } > "$GH_AW_PROMPT"
@@ -458,7 +458,7 @@ jobs:
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
           cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_33a67fb9814020f9_EOF'
-          {"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{},"search-kb":{"description":"Run the issue body through wkb's SOMA retrieval, post ranked results, and close the issue.","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"SOMA search results posted"}}
+          {"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{},"search-kb":{"description":"Run the issue body through wkb's LexCAT retrieval, post ranked results, and close the issue.","inputs":{"confirm":{"default":null,"description":"Literal value: run","required":true,"type":"string"}},"output":"LexCAT search results posted"}}
           GH_AW_SAFE_OUTPUTS_CONFIG_33a67fb9814020f9_EOF
       - name: Generate Safe Outputs Tools
         env:
@@ -468,7 +468,7 @@ jobs:
               "repo_params": {},
               "dynamic_tools": [
                 {
-                  "description": "Run the issue body through wkb's SOMA retrieval, post ranked results, and close the issue.",
+                  "description": "Run the issue body through wkb's LexCAT retrieval, post ranked results, and close the issue.",
                   "inputSchema": {
                     "additionalProperties": false,
                     "properties": {

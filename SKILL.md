@@ -11,7 +11,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export WIKIKB_GITHUB_TOKEN="$(gh auth token)"
 ```
 
-Node.js 22+ and SOMA are required. Retrieval has no alternate backend.
+Node.js 22+ and LexCAT are required. Retrieval has no alternate backend.
 
 ## Agent Contract
 
@@ -42,7 +42,7 @@ wkb prompts list|init|path|show <name>
 Dots select up to five namespace levels and include descendants. Tag filters use AND semantics.
 Generation options are `--ai`, `--provider`, `--model`, `--show-prompt`, `--rewrite-query`, `--prompt`, and `--task`. Use `query --no-ai` to return retrieved evidence without generation.
 
-Reads sync the wiki and restore or refresh its shared index. Writes push by default and refresh the selected index. `--no-push` content remains uncommitted and cannot enter the shared cache. A requested push that cannot be published fails.
+Reads sync the wiki and restore or fully rebuild its shared index. Writes push by default and rebuild the selected index. `--no-push` content remains uncommitted and cannot enter the shared cache. A requested push that cannot be published fails.
 
 ## AI
 

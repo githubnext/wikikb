@@ -71,6 +71,7 @@ const forbiddenSourceReferences = [
 ];
 const forbiddenBinaryReferences = [
   `${["msr", "central"].join("-")}/${["so", "ma"].join("")}`,
+  `${["msr", "central"].join("-")}/${["lex", "cat"].join("")}`,
 ];
 
 for (const required of [
@@ -96,9 +97,9 @@ for (const required of [
   "tools/wikikb-local/assets/wikikb-memory/SKILL.md",
   "tools/wikikb-local/assets/wikikb-memory/agents/openai.yaml",
   "tools/wikikb-local/tsconfig.json",
-  "vendor/soma/README.md",
-  "vendor/soma/THIRD_PARTY_NOTICES.txt",
-  "vendor/soma/manifest.json",
+  "vendor/lexcat/README.md",
+  "vendor/lexcat/THIRD_PARTY_NOTICES.txt",
+  "vendor/lexcat/manifest.json",
   "gh-wikikb",
 ]) {
   requireFile(required);
@@ -232,8 +233,8 @@ for (const workflow of agenticWorkflows) {
 for (const workflow of ["query-kb", "search-kb"]) {
   const body = read(`tools/agentic-install/template/.github/workflows/${workflow}.md`);
   const command = workflow === "query-kb" ? '"query"' : '"search"';
-  if (!body.includes(command) || !body.includes("SOMA") || !body.includes("safe-outputs:")) {
-    errors.push(`${workflow} must execute SOMA retrieval through a constrained job.`);
+  if (!body.includes(command) || !body.includes("LexCAT") || !body.includes("safe-outputs:")) {
+    errors.push(`${workflow} must execute LexCAT retrieval through a constrained job.`);
   }
   if (!body.includes("$GITHUB_WORKSPACE/.github/wikikb/package.json")) {
     errors.push(`${workflow} must support the isolated agentic-install runtime.`);
@@ -325,110 +326,99 @@ for (const referenceFile of ["README.md", "INSTALL.md", "SKILL.md", "docs/releas
   }
 }
 
-const somaManifest = readJson("vendor/soma/manifest.json");
+const lexcatManifest = readJson("vendor/lexcat/manifest.json");
 const rootLicense = read("LICENSE");
 const packageMetadata = readJson("package.json");
 if (
-  !rootLicense.includes("vendor/soma/") ||
+  !rootLicense.includes("vendor/lexcat/") ||
   !/not licensed under the MIT License/.test(rootLicense) ||
   packageMetadata.license !== "SEE LICENSE IN LICENSE"
 ) {
-  errors.push("Root licensing metadata must exclude the vendored SOMA binaries from the MIT grant.");
+  errors.push("Root licensing metadata must exclude the vendored LexCAT binaries from the MIT grant.");
 }
 if (
-  somaManifest.schema_version !== 1 ||
-  somaManifest.name !== "SOMA" ||
-  somaManifest.version !== "0.3.0" ||
-  somaManifest.notices !== "THIRD_PARTY_NOTICES.txt" ||
-  !/^[a-f0-9]{64}$/.test(somaManifest.notices_sha256 || "") ||
-  somaManifest.model?.name !== "potion-retrieval-32M" ||
-  somaManifest.model?.install_argument !== "model2vec-potion-retrieval-32m" ||
-  somaManifest.model?.repository !== "minishlab/potion-retrieval-32M" ||
-  somaManifest.model?.revision !== "6fc8051fab2a1e0ee76689cf08c853792ac285e7" ||
-  somaManifest.model?.license !== "MIT" ||
-  !somaManifest.model?.files ||
-  !Array.isArray(somaManifest.artifacts)
+  lexcatManifest.schema_version !== 1 ||
+  lexcatManifest.name !== "LEXCAT" ||
+  lexcatManifest.version !== "0.0.20" ||
+  lexcatManifest.notices !== "THIRD_PARTY_NOTICES.txt" ||
+  !/^[a-f0-9]{64}$/.test(lexcatManifest.notices_sha256 || "") ||
+  !Number.isInteger(lexcatManifest.index_schema_version) ||
+  "model" in lexcatManifest ||
+  !Array.isArray(lexcatManifest.artifacts)
 ) {
-  errors.push("vendor/soma/manifest.json must declare the approved SOMA 0.3.0 artifact, model, and notice metadata.");
+  errors.push("vendor/lexcat/manifest.json must declare the approved model-free LexCAT 0.0.20 artifact and notice metadata.");
 } else {
-  const noticesPath = rel("vendor", "soma", somaManifest.notices);
+  const noticesPath = rel("vendor", "lexcat", lexcatManifest.notices);
   if (!fs.existsSync(noticesPath)) {
-    errors.push("SOMA third-party notice is missing.");
+    errors.push("LexCAT third-party notice is missing.");
   } else {
     const noticesText = read(path.relative(repoRoot, noticesPath));
     if (!noticesText.includes("are not licensed under WikiKB's MIT License")) {
-      errors.push("SOMA third-party notice must state that the binaries are outside WikiKB's MIT license.");
+      errors.push("LexCAT third-party notice must state that the binaries are outside WikiKB's MIT license.");
     }
     const noticesDigest = crypto.createHash("sha256").update(fs.readFileSync(noticesPath)).digest("hex");
-    if (noticesDigest !== somaManifest.notices_sha256) errors.push("SOMA third-party notice checksum mismatch.");
+    if (noticesDigest !== lexcatManifest.notices_sha256) errors.push("LexCAT third-party notice checksum mismatch.");
   }
-  const modelFiles = Object.entries(somaManifest.model.files);
-  if (modelFiles.length !== 7) errors.push("SOMA model manifest must pin all seven runtime files.");
-  for (const [file, digest] of modelFiles) {
-    if (path.basename(file) !== file || !/^[a-f0-9]{64}$/.test(digest)) {
-      errors.push(`Invalid SOMA model checksum metadata: ${file}`);
-    }
-  }
-  const expectedPlatforms = new Set(["darwin/arm64", "linux/arm64", "linux/x64", "win32/arm64", "win32/x64"]);
+  const expectedPlatforms = new Set(["darwin/arm64", "darwin/x64", "linux/arm64", "linux/x64", "win32/x64"]);
   const seenPlatforms = new Set();
-  for (const artifact of somaManifest.artifacts) {
+  for (const artifact of lexcatManifest.artifacts) {
     const platform = `${artifact.platform}/${artifact.arch}`;
-    if (!expectedPlatforms.has(platform)) errors.push(`Unexpected SOMA platform artifact: ${platform}`);
-    if (seenPlatforms.has(platform)) errors.push(`Duplicate SOMA platform artifact: ${platform}`);
+    if (!expectedPlatforms.has(platform)) errors.push(`Unexpected LexCAT platform artifact: ${platform}`);
+    if (seenPlatforms.has(platform)) errors.push(`Duplicate LexCAT platform artifact: ${platform}`);
     seenPlatforms.add(platform);
     expectedPlatforms.delete(platform);
     if (path.basename(artifact.archive || "") !== artifact.archive || path.basename(artifact.executable || "") !== artifact.executable) {
-      errors.push(`Unsafe SOMA artifact path for ${platform}.`);
+      errors.push(`Unsafe LexCAT artifact path for ${platform}.`);
       continue;
     }
     if (
-      !/^[a-f0-9]{64}$/.test(artifact.upstream_archive_sha256 || "") ||
+      !/^[a-f0-9]{64}$/.test(artifact.upstream_sha256 || "") ||
       !/^[a-f0-9]{64}$/.test(artifact.archive_sha256 || "") ||
       !/^[a-f0-9]{64}$/.test(artifact.executable_sha256 || "")
     ) {
-      errors.push(`Invalid SOMA checksum metadata for ${platform}.`);
+      errors.push(`Invalid LexCAT checksum metadata for ${platform}.`);
       continue;
     }
     if (typeof artifact.provenance !== "string" || artifact.provenance.length < 40 || /https?:\/\//i.test(artifact.provenance)) {
-      errors.push(`Missing or unsafe SOMA provenance metadata for ${platform}.`);
+      errors.push(`Missing or unsafe LexCAT provenance metadata for ${platform}.`);
     }
-    const archivePath = rel("vendor", "soma", artifact.archive);
-    requireFile(path.join("vendor", "soma", artifact.archive));
+    const archivePath = rel("vendor", "lexcat", artifact.archive);
+    requireFile(path.join("vendor", "lexcat", artifact.archive));
     if (!fs.existsSync(archivePath)) continue;
     const archiveDigest = crypto.createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
-    if (archiveDigest !== artifact.archive_sha256) errors.push(`SOMA archive checksum mismatch: ${artifact.archive}`);
+    if (archiveDigest !== artifact.archive_sha256) errors.push(`LexCAT archive checksum mismatch: ${artifact.archive}`);
 
     const listCommand = artifact.format === "zip" ? "unzip" : "tar";
     const listArgs = artifact.format === "zip" ? ["-Z1", archivePath] : ["-tzf", archivePath];
     const listed = spawnSync(listCommand, listArgs, { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
     if (listed.status !== 0) {
-      errors.push(`Could not inspect SOMA archive ${artifact.archive}: ${(listed.stderr || listed.stdout || "").trim()}`);
+      errors.push(`Could not inspect LexCAT archive ${artifact.archive}: ${(listed.stderr || listed.stdout || "").trim()}`);
       continue;
     }
     const rawEntries = listed.stdout.split(/\r?\n/).filter((entry) => entry && entry !== "." && entry !== "./" && !entry.endsWith("/"));
     const normalizedEntries = rawEntries.map((entry) => entry.replace(/^\.\//, ""));
     if (normalizedEntries.length !== 1 || normalizedEntries[0] !== artifact.executable) {
-      errors.push(`SOMA archive must contain only ${artifact.executable}: ${artifact.archive}`);
+      errors.push(`LexCAT archive must contain only ${artifact.executable}: ${artifact.archive}`);
       continue;
     }
     const extractCommand = artifact.format === "zip" ? "unzip" : "tar";
     const extractArgs = artifact.format === "zip" ? ["-p", archivePath, rawEntries[0]] : ["-xOzf", archivePath, rawEntries[0]];
     const extracted = spawnSync(extractCommand, extractArgs, { encoding: null, maxBuffer: 64 * 1024 * 1024 });
     if (extracted.status !== 0 || !Buffer.isBuffer(extracted.stdout)) {
-      errors.push(`Could not verify SOMA executable ${artifact.executable} in ${artifact.archive}.`);
+      errors.push(`Could not verify LexCAT executable ${artifact.executable} in ${artifact.archive}.`);
       continue;
     }
     const executableDigest = crypto.createHash("sha256").update(extracted.stdout).digest("hex");
-    if (executableDigest !== artifact.executable_sha256) errors.push(`SOMA executable checksum mismatch: ${artifact.archive}`);
+    if (executableDigest !== artifact.executable_sha256) errors.push(`LexCAT executable checksum mismatch: ${artifact.archive}`);
     const binaryText = extracted.stdout.toString("latin1").toLowerCase();
     const wideBinaryText = binaryText.replaceAll("\0", "");
     for (const forbidden of forbiddenBinaryReferences) {
       if (binaryText.includes(forbidden) || wideBinaryText.includes(forbidden)) {
-        errors.push(`Forbidden source-repository reference found in SOMA executable: ${artifact.archive}`);
+        errors.push(`Forbidden source-repository reference found in LexCAT executable: ${artifact.archive}`);
       }
     }
   }
-  for (const missing of expectedPlatforms) errors.push(`Missing required SOMA platform artifact: ${missing}`);
+  for (const missing of expectedPlatforms) errors.push(`Missing required LexCAT platform artifact: ${missing}`);
 }
 
 for (const scriptName of ["check", "release:check", "audit:dependencies", "bundle:check", "package:release"]) {
@@ -542,7 +532,7 @@ const retiredProjectTerms = [
   ["chro", "me"].join(""),
 ];
 for (const file of files) {
-  const isVendorNotice = file === "vendor/soma/THIRD_PARTY_NOTICES.txt";
+  const isVendorNotice = file === "vendor/lexcat/THIRD_PARTY_NOTICES.txt";
   for (const term of retiredProjectTerms) {
     if (!isVendorNotice && file.toLowerCase().includes(term)) errors.push(`Retired project term remains in repository path: ${file}`);
   }
